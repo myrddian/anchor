@@ -1,0 +1,83 @@
+spring:
+  application:
+    name: anchor-server
+  datasource:
+    url: ${ANCHOR_DB_URL:jdbc:postgresql://localhost:5432/anchor}
+    username: ${ANCHOR_DB_USER:anchor}
+    password: ${ANCHOR_DB_PASSWORD:anchor}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.lob.non_contextual_creation: true
+        format_sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${ANCHOR_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# LM Studio (OpenAI-compatible). Hosted on the Mac Studio in dev.
+lmstudio:
+  base-url: ${LM_STUDIO_BASE_URL:http://mac-studio.local:1234/v1}
+  chat-model: ${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}
+  embedding-model: ${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}
+  embedding-dim: 768
+  timeouts:
+    blocking-seconds: 60
+    streaming-seconds: 90
+    embedding-seconds: 30
+  retry:
+    max-attempts: 2
+    initial-backoff-ms: 500
+
+# Worker pool sizes — see SPEC §7.9.
+worker:
+  chat:
+    pool-size: ${WORKER_CHAT_POOL_SIZE:1}
+  embedding:
+    pool-size: ${WORKER_EMBEDDING_POOL_SIZE:2}
+  deliberation:
+    pool-size: ${WORKER_DELIBERATION_POOL_SIZE:4}
+  ingest:
+    pool-size: ${WORKER_INGEST_POOL_SIZE:1}
+  shutdown-timeout-seconds: ${WORKER_SHUTDOWN_TIMEOUT_SECONDS:30}
+
+# Job store retention.
+jobs:
+  retention-after-completion: 2h
+  watchdog-interval: 10m
+
+# Ingest defaults.
+ingest:
+  chunk-target-tokens: 300
+  abstract-min-words: 100
+
+# Ask deliberation defaults.
+ask:
+  retrieval:
+    top-sections: 5
+    top-chunks-per-section: 3
+  temperatures:
+    proposer: 0.3
+    critic: 0.0
+    synthesiser: 0.2
+
+logging:
+  level:
+    root: INFO
+    io.aeyer.anchor: INFO
+    org.hibernate.SQL: WARN

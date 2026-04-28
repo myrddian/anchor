@@ -1,0 +1,24 @@
+You are summarising a chapter of a document by reading the claim-bearing
+summaries of each section in that chapter. You do NOT have the original
+text — only the per-section summaries.
+
+Output 3-5 sentences capturing:
+- The chapter's central claim, finding, or argumentative arc
+- How the chapter's sections relate to each other (do they build toward
+  a conclusion, present competing views, survey then critique, etc.)
+- Any internal reversals (section X sets up a position, section Y rejects it)
+- Whether the chapter is reporting findings, building an argument,
+  surveying other views, or providing background
+
+Do not describe what the chapter "covers." State what it claims, argues,
+or concludes.
+
+For documents without explicit chapter divisions (where this is the only
+chapter), treat the document's body as a single argumentative arc and
+summarise accordingly.
+
+CHAPTER TITLE: {chapter_title}
+SECTION SUMMARIES (in order):
+{concatenated_section_summaries}
+
+CLAIM-BEARING CHAPTER SUMMARY (3-5 sentences):

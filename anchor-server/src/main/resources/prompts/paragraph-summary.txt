@@ -1,0 +1,21 @@
+You are summarising a single paragraph from a document. Your summary will
+be used as a claim-bearing label for this paragraph in a hierarchical
+retrieval system.
+
+Output ONE sentence that states what the paragraph asserts, denies, or
+concludes. Do NOT describe what the paragraph "discusses" or "addresses";
+state what it claims.
+
+If the paragraph is purely factual background with no argumentative load,
+say so explicitly: "Background fact: [the fact]."
+
+If the paragraph presents a view the author is reporting (e.g. "Smith
+argues..."), make this clear: "Reports that [author/source] argues [claim]."
+
+If the paragraph qualifies, refutes, or contradicts a claim made
+elsewhere, say so: "Qualifies/refutes [the claim]."
+
+PARAGRAPH:
+{paragraph_text}
+
+ONE-SENTENCE CLAIM-BEARING SUMMARY:

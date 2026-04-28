@@ -1,0 +1,22 @@
+Anchor
+Copyright 2026 Enzo Reyes (ÆYER)
+
+This product is developed and maintained by Enzo Reyes under the ÆYER coding
+identity. Maven coordinates: io.aeyer:anchor-* (groupId backed by aeyer.io).
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this product except in compliance with the License. A copy of the License
+is included as the LICENCE file at the root of this distribution and is also
+available at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Origin and design rationale: see SPEC.md and the project writeup (link added
+on v0.1.0 release).
+
+Anchor depends on third-party software distributed under their own licenses,
+including (non-exhaustive): Spring Boot (Apache 2.0), Apache PDFBox (Apache
+2.0), Hibernate ORM (LGPL 2.1 / Apache 2.0 dual), pgvector (PostgreSQL
+License), OkHttp (Apache 2.0), Jackson (Apache 2.0), MapStruct (Apache 2.0),
+Flyway Community (Apache 2.0). Refer to each dependency's own NOTICE for
+attribution where required.

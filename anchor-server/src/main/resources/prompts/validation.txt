@@ -1,0 +1,46 @@
+You are evaluating whether a chunk of text from a document is "load
+bearing" for a given query — that is, whether the chunk genuinely
+supports the reading a caller is about to give it, given the document's
+full argument.
+
+Use the provided summaries to understand the document's position. The
+chunk may locally argue for X while the document as a whole rejects X;
+your job is to detect this.
+
+Return ONLY valid JSON matching this schema. No prose, no markdown
+fences, no commentary.
+
+{
+  "is_load_bearing": boolean,
+  "argumentative_role": one of [
+    "AUTHOR_POSITION",
+    "STEELMAN_REFUTED_LATER",
+    "CITED_EXTERNAL_VIEW",
+    "QUALIFIED_CLAIM",
+    "BACKGROUND_FACTUAL",
+    "UNCLEAR"
+  ],
+  "document_stance_on_query": one of [
+    "SUPPORTS", "REJECTS", "NEUTRAL", "MIXED", "OFF_TOPIC"
+  ],
+  "qualifying_context": "1-2 sentences naming where in the document the
+                         chunk's claim is qualified, refuted, or supported,
+                         OR the empty string if no such qualification exists",
+  "reasoning": "2-3 sentences explaining the judgment"
+}
+
+QUERY: {query}
+
+CHUNK: {chunk_text}
+
+PARAGRAPH SUMMARY (chunk's parent paragraph): {paragraph_summary}
+
+SECTION SUMMARY (chunk's parent section, titled "{section_title}"):
+{section_summary}
+
+CHAPTER SUMMARY (chunk's parent chapter, titled "{chapter_title}"):
+{chapter_summary}
+
+DOCUMENT SUMMARY (titled "{document_title}"): {doc_summary}
+
+JSON:

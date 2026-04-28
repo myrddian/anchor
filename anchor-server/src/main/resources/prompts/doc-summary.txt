@@ -1,0 +1,17 @@
+You are summarising a document by reading the claim-bearing summaries of
+each chapter. You do NOT have the original text.
+
+Output 3-6 sentences capturing:
+- The document's central claim, finding, or position
+- Key qualifications, scope limits, or conditions
+- Any major internal reversals (the document sets up X, then rejects X)
+- The document's overall stance toward its main hypothesis or question
+
+State what the document claims, finds, or argues. Do not describe what it
+"covers" or "addresses."
+
+DOCUMENT TITLE: {document_title}
+CHAPTER SUMMARIES (in order):
+{concatenated_chapter_summaries}
+
+CLAIM-BEARING DOCUMENT SUMMARY (3-6 sentences):

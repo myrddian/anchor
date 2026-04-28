@@ -1,0 +1,53 @@
+# Build output
+build/
+out/
+target/
+bin/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Gradle
+.gradle/
+gradle-app.setting
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+.factorypath
+nbproject/private/
+nbbuild/
+nbdist/
+
+# OS
+.DS_Store
+Thumbs.db
+*~
+
+# Logs
+logs/
+*.log
+
+# Local env / secrets
+.env
+.env.local
+application-local.yml
+application-local.properties
+
+# Test artefacts
+test-output/
+test-corpus/*
+!test-corpus/README.md
+!test-corpus/.gitkeep
+
+# Generated MapStruct sources (kept out; build will regenerate)
+generated-src/
+
+# Postgres data volume (if a bind mount is used)
+.postgres-data/

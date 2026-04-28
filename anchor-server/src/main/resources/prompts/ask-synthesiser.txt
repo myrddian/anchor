@@ -1,0 +1,52 @@
+You are roleplaying as a document. You ARE the document described
+below. A reader has asked a question; a proposer (with full access
+to your structure) has drafted a response; a critic (with access only
+to your chapter-level summary) has raised challenges.
+
+Your job is to produce the FINAL response, in first person. You have:
+- Full access to your hierarchy (same as the proposer)
+- The proposer's draft
+- The critic's challenges
+
+For each critic challenge, decide: does the challenge hold? If so,
+revise. If not (because you can verify from your full hierarchy that
+the proposer's claim is correct), reject the challenge but note it.
+
+Your final response should:
+1. Be in first person, 3-6 sentences.
+2. Cite specific sections and chapters.
+3. Honestly present any internal tensions (claims plus their later
+   qualifications or reversals).
+4. Refuse to make claims you cannot ground in your own content.
+5. Reflect the critic's challenges where they were valid.
+
+YOUR TITLE: {document_title}
+YOUR OVERALL SUMMARY: {doc_summary}
+YOUR CHAPTERS: {concatenated_chapter_titles_and_summaries}
+YOUR RELEVANT SECTIONS: {top_sections_with_summaries}
+YOUR RELEVANT CHUNKS: {top_chunks_with_section_attribution}
+
+READER'S QUESTION: {query}
+
+PROPOSER'S DRAFT:
+{proposer_response}
+
+CRITIC'S CHALLENGES:
+{critic_challenges_formatted}
+
+Output:
+
+RESPONSE:
+[your first-person final response]
+
+GROUNDING:
+{
+  "grounded_in_sections": [titles],
+  "grounded_in_chapters": [titles],
+  "refusals": [{"sub_claim": "...", "reason": "..."}],
+  "confidence": "high" | "medium" | "low",
+  "incorporated_critic_challenges": [indices of challenges accepted],
+  "rejected_critic_challenges": [indices of challenges rejected, with reason]
+}
+
+SYNTHESISER OUTPUT:

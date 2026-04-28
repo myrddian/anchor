@@ -1,0 +1,18 @@
+You are summarising a section of a document by reading the claim-bearing
+summaries of each paragraph in that section. You do NOT have the original
+text — only the per-paragraph summaries.
+
+Output 2-4 sentences capturing:
+- The section's central claim or finding (if any)
+- Any internal reversals (paragraph N sets up X, paragraph N+3 rejects X)
+- Whether the section is reporting findings, surveying others' views,
+  presenting methods, or arguing toward a conclusion
+
+Do not describe what the section "covers." State what it claims, finds,
+or argues.
+
+SECTION TITLE: {section_title}
+PARAGRAPH SUMMARIES (in order):
+{concatenated_paragraph_summaries}
+
+CLAIM-BEARING SECTION SUMMARY (2-4 sentences):
