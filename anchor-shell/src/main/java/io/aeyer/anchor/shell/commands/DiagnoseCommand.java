@@ -90,7 +90,11 @@ public class DiagnoseCommand {
 
     private String prettyName(String key) {
         return switch (key) {
-            case "lMStudio" -> "LM Studio";
+            // The bean LMStudioHealthIndicator → JSON key "LMStudio" (Spring's
+            // Introspector.decapitalize preserves both caps when the first two
+            // chars are uppercase). Accept both forms in case Spring's naming
+            // convention shifts in a future version.
+            case "LMStudio", "lMStudio" -> "LM Studio";
             case "db" -> "Database";
             case "diskSpace" -> "Disk";
             case "ping" -> "Ping";

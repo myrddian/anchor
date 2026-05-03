@@ -76,6 +76,16 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "${ANCHOR_SKIP_BOOT:-}" != "1" ]]; then
+  # Refuse to start if port 8080 is already taken — otherwise bootRun fails
+  # silently in the background and the script ends up polling a stale server
+  # from a previous run, which is genuinely confusing to debug.
+  ANCHOR_PORT="${ANCHOR_PORT:-8080}"
+  if lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "✗ port ${ANCHOR_PORT} is already in use:" >&2
+    lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >&2
+    echo "  Stop the existing process or set ANCHOR_SKIP_BOOT=1 if it's the server you want." >&2
+    exit 1
+  fi
   echo "==> 2/5 starting server (./gradlew :anchor-server:bootRun)"
   ( cd "${REPO_ROOT}" && ./gradlew :anchor-server:bootRun --console=plain ) \
     > /tmp/anchor-smoke.log 2>&1 &
@@ -99,14 +109,31 @@ done
 # 3. Health check -------------------------------------------------------------
 echo "==> 3/5 checking /actuator/health components"
 HEALTH="$(curl -fsS "${BASE_URL}/actuator/health")"
-echo "${HEALTH}" | grep -q '"status":"UP"' \
+# If show-details=always isn't taking effect (e.g. running an old build),
+# the response collapses to {"status":"UP"} and we can't tell which
+# component is broken — print the body so the operator sees that.
+if ! echo "${HEALTH}" | grep -q '"components"'; then
+  echo "✗ /actuator/health returned no component breakdown:" >&2
+  echo "${HEALTH}" | jq . 2>/dev/null || echo "${HEALTH}" >&2
+  echo "  This usually means an older build is running. Try:" >&2
+  echo "    pkill -f 'anchor-server' && ./gradlew :anchor-server:clean" >&2
+  exit 1
+fi
+# Component name is "LMStudio" (capital L) — Spring's Introspector.decapitalize
+# preserves both caps when the first two chars are uppercase.
+if echo "${HEALTH}" | jq -e '.components.LMStudio.status == "UP"' >/dev/null 2>&1; then
+  echo "  ✓ LM Studio reachable"
+else
+  echo "✗ LM Studio probe failed:" >&2
+  echo "${HEALTH}" | jq '.components.LMStudio' 2>/dev/null || echo "${HEALTH}"
+  exit 1
+fi
+if echo "${HEALTH}" | jq -e '.components.db.status == "UP"' >/dev/null 2>&1; then
+  echo "  ✓ database reachable"
+fi
+echo "${HEALTH}" | jq -e '.status == "UP"' >/dev/null \
   && echo "  ✓ overall status UP" \
-  || { echo "✗ overall status not UP:"; echo "${HEALTH}"; exit 1; }
-echo "${HEALTH}" | grep -q '"lMStudio":{"status":"UP"' \
-  && echo "  ✓ LM Studio reachable" \
-  || { echo "✗ LM Studio probe failed:"; echo "${HEALTH}"; exit 1; }
-echo "${HEALTH}" | grep -q '"db":{"status":"UP"' \
-  && echo "  ✓ database reachable"
+  || { echo "✗ overall status not UP:"; echo "${HEALTH}" | jq .; exit 1; }
 
 # 4. Ingest -------------------------------------------------------------------
 echo "==> 4/5 ingesting ${PDF_PATH}"
