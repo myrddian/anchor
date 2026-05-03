@@ -42,4 +42,5 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter:$testcontainersVersion")
     testImplementation("org.testcontainers:postgresql:$testcontainersVersion")
+    testImplementation("com.squareup.okhttp3:mockwebserver:$okhttpVersion")
 }
