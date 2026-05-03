@@ -21,7 +21,7 @@ spring:
     locations: classpath:db/migration
 
 server:
-  port: ${ANCHOR_PORT:8080}
+  port: ${ANCHOR_PORT:8090}
 
 management:
   endpoints:

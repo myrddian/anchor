@@ -128,7 +128,7 @@ set -a; source .env; set +a   # or pass LM_STUDIO_BASE_URL=… inline
 ./gradlew :anchor-server:bootRun
 ```
 
-Server boots on `:8080` by default. Watch the startup log for the named
+Server boots on `:8090` by default. Watch the startup log for the named
 worker threads (`chat-worker-0`, `embedding-worker-0..1`,
 `deliberation-worker-0..3`, `ingest-worker-0`) — that's how SPEC §7.9 thread
 correlation surfaces in practice.
@@ -152,7 +152,7 @@ anchor:> demo "does compound X inhibit enzyme Y"   # /retrieve + /ask side-by-si
 
 ```java
 AnchorClient anchor = AnchorClient.builder()
-    .baseUrl("http://localhost:8080")
+    .baseUrl("http://localhost:8090")
     .timeout(Duration.ofSeconds(120))
     .build();
 

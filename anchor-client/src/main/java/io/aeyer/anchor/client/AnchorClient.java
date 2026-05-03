@@ -72,7 +72,7 @@ public final class AnchorClient {
     }
 
     public static final class Builder {
-        private String baseUrl = "http://localhost:8080";
+        private String baseUrl = "http://localhost:8090";
         private Duration timeout = Duration.ofSeconds(60);
         private ObjectMapper mapper;
 

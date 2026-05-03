@@ -34,7 +34,7 @@ public class DiagnoseCommand {
             .build();
     private final String baseUrl;
 
-    public DiagnoseCommand(@Value("${anchor.base-url:http://localhost:8080}") String baseUrl) {
+    public DiagnoseCommand(@Value("${anchor.base-url:http://localhost:8090}") String baseUrl) {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 

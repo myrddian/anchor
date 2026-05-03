@@ -15,7 +15,7 @@
 #   LM_STUDIO_CHAT_MODEL     e.g. gemma-3-4b-it
 #   LM_STUDIO_EMBEDDING_MODEL e.g. nomic-embed-text-v1.5
 #   ANCHOR_DB_URL            (default jdbc:postgresql://localhost:5433/anchor)
-#   ANCHOR_BASE_URL          (default http://localhost:8080)
+#   ANCHOR_BASE_URL          (default http://localhost:8090)
 #   ANCHOR_SKIP_COMPOSE=1    skip `docker compose up -d postgres`
 #   ANCHOR_SKIP_BOOT=1       skip starting the server (assume it's already running)
 
@@ -34,7 +34,7 @@ fi
 
 PDF_PATH="${1:-}"
 QUERY="${2:-What is the central claim of this paper?}"
-BASE_URL="${ANCHOR_BASE_URL:-http://localhost:8080}"
+BASE_URL="${ANCHOR_BASE_URL:-http://localhost:8090}"
 
 if [[ -z "${PDF_PATH}" ]]; then
   echo "usage: $0 /path/to/paper.pdf [\"question\"]" >&2
@@ -76,10 +76,10 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "${ANCHOR_SKIP_BOOT:-}" != "1" ]]; then
-  # Refuse to start if port 8080 is already taken — otherwise bootRun fails
+  # Refuse to start if port 8090 is already taken — otherwise bootRun fails
   # silently in the background and the script ends up polling a stale server
   # from a previous run, which is genuinely confusing to debug.
-  ANCHOR_PORT="${ANCHOR_PORT:-8080}"
+  ANCHOR_PORT="${ANCHOR_PORT:-8090}"
   if lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "✗ port ${ANCHOR_PORT} is already in use:" >&2
     lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >&2

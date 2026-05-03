@@ -15,7 +15,7 @@ Pre-v0.2 the client API is unstable and not published.
 
 ```java
 var anchor = AnchorClient.builder()
-    .baseUrl("http://localhost:8080")
+    .baseUrl("http://localhost:8090")
     .timeout(Duration.ofSeconds(120))
     .build();
 
