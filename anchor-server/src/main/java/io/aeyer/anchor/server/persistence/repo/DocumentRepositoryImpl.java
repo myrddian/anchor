@@ -203,6 +203,51 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                 vectorLiteral, documentId, vectorLiteral, Math.max(1, Math.min(50, limit)));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<RetrieveSearchRow> findChunksForRetrieve(UUID documentId, float[] queryEmbedding, int limit) {
+        String vectorLiteral = toPgVectorText(queryEmbedding);
+        StringBuilder sql = new StringBuilder("""
+                SELECT k.id AS chunk_id,
+                       k.text AS chunk_text,
+                       1 - (k.embedding <=> ?::vector) AS similarity,
+                       p.id AS paragraph_id, p.summary AS paragraph_summary,
+                       s.id AS section_id, s.title AS section_title, s.summary AS section_summary,
+                       c.id AS chapter_id, c.title AS chapter_title, c.summary AS chapter_summary,
+                       d.id AS document_id, d.title AS document_title, d.doc_summary AS document_summary
+                FROM chunks k
+                JOIN paragraphs p ON p.id = k.paragraph_id
+                JOIN sections s ON s.id = p.section_id
+                JOIN chapters c ON c.id = s.chapter_id
+                JOIN documents d ON d.id = c.document_id
+                """);
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(vectorLiteral);
+        if (documentId != null) {
+            sql.append("WHERE d.id = ?\n");
+            args.add(documentId);
+        }
+        sql.append("ORDER BY k.embedding <=> ?::vector\nLIMIT ?");
+        args.add(vectorLiteral);
+        args.add(Math.max(1, Math.min(100, limit)));
+        return jdbc.query(sql.toString(), (rs, rowNum) -> new RetrieveSearchRow(
+                        (UUID) rs.getObject("chunk_id"),
+                        rs.getString("chunk_text"),
+                        rs.getDouble("similarity"),
+                        (UUID) rs.getObject("paragraph_id"),
+                        rs.getString("paragraph_summary"),
+                        (UUID) rs.getObject("section_id"),
+                        rs.getString("section_title"),
+                        rs.getString("section_summary"),
+                        (UUID) rs.getObject("chapter_id"),
+                        rs.getString("chapter_title"),
+                        rs.getString("chapter_summary"),
+                        (UUID) rs.getObject("document_id"),
+                        rs.getString("document_title"),
+                        rs.getString("document_summary")),
+                args.toArray());
+    }
+
     private static String toPgVectorText(float[] v) {
         StringBuilder sb = new StringBuilder(v.length * 6 + 2);
         sb.append('[');

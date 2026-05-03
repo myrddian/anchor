@@ -35,6 +35,13 @@ public interface DocumentRepositoryDomain {
 
     List<ChunkSearchHit> findSimilarChunksInDocument(UUID documentId, float[] queryEmbedding, int limit);
 
+    /**
+     * /retrieve search. {@code documentId} optional — null means corpus-wide.
+     * Returns each hit with the full ancestor stack joined so the response
+     * envelope is one row per chunk with no follow-up reads.
+     */
+    List<RetrieveSearchRow> findChunksForRetrieve(UUID documentId, float[] queryEmbedding, int limit);
+
     record DocumentCounts(int chapters, int sections, int chunks) {}
 
     record ChunkSearchHit(
@@ -44,4 +51,20 @@ public interface DocumentRepositoryDomain {
             String paragraphSummary,
             String sectionTitle,
             double similarity) {}
+
+    record RetrieveSearchRow(
+            UUID chunkId,
+            String chunkText,
+            double similarity,
+            UUID paragraphId,
+            String paragraphSummary,
+            UUID sectionId,
+            String sectionTitle,
+            String sectionSummary,
+            UUID chapterId,
+            String chapterTitle,
+            String chapterSummary,
+            UUID documentId,
+            String documentTitle,
+            String documentSummary) {}
 }

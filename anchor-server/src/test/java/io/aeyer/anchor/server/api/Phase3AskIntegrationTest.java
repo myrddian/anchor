@@ -16,6 +16,7 @@ import io.aeyer.anchor.server.domain.DocSummarySource;
 import io.aeyer.anchor.server.llm.ChatCompletion;
 import io.aeyer.anchor.server.llm.Embedding;
 import io.aeyer.anchor.server.llm.LMStudioClient;
+import java.util.concurrent.CompletableFuture;
 import io.aeyer.anchor.server.persistence.entity.ChapterDbo;
 import io.aeyer.anchor.server.persistence.entity.ChunkDbo;
 import io.aeyer.anchor.server.persistence.entity.DocumentDbo;
@@ -124,6 +125,43 @@ class Phase3AskIntegrationTest {
             List<String> inputs = inv.getArgument(0);
             return inputs.stream().map(s -> new Embedding(unitVector())).toList();
         });
+        // Streaming variant — proposer + synthesiser go through completeStreaming.
+        // Resolve the future with the full response and (optionally) hand a token chunk
+        // to the registered handler so the *_THOUGHT path is exercised.
+        when(llm.completeStreaming(any(), anyString(), any(Double.class), any())).thenAnswer(invocation -> {
+            String prompt = invocation.getArgument(1);
+            ChatCompletion completion = synchronousCompletion(prompt);
+            java.util.function.Consumer<String> handler = invocation.getArgument(3);
+            handler.accept(completion.content());
+            return CompletableFuture.completedFuture(completion);
+        });
+    }
+
+    private ChatCompletion synchronousCompletion(String prompt) {
+        if (prompt.contains("Respond as the document")) {
+            return new ChatCompletion(
+                    "I, the document, claim the catalyst is selective per Methods.",
+                    "stop", null);
+        }
+        if (prompt.contains("macro view")) {
+            return new ChatCompletion("""
+                    {"challenges":["proposer overclaims selectivity"],
+                     "challenges_count":1,
+                     "macro_view_supports_proposer":"partially"}
+                    """, "stop", null);
+        }
+        return new ChatCompletion("""
+                RESPONSE:
+                I claim selectivity, qualified by Methods §1.
+
+                GROUNDING:
+                {"grounded_in_sections":["Methods"],
+                 "grounded_in_chapters":["Chapter 1"],
+                 "refusals":[],
+                 "confidence":"medium",
+                 "incorporated_critic_challenges":[0],
+                 "rejected_critic_challenges":[]}
+                """, "stop", null);
     }
 
     @Test

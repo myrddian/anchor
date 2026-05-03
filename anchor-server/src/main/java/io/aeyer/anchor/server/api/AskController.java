@@ -8,6 +8,8 @@ import io.aeyer.anchor.server.jobs.AskJob;
 import io.aeyer.anchor.server.jobs.JobStore;
 import io.aeyer.anchor.server.service.AskService;
 import io.aeyer.anchor.server.service.IngestException;
+import io.aeyer.anchor.server.sse.JobStreamRegistry;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * SPEC §5.4 — async deliberation surface.
@@ -33,10 +36,12 @@ public class AskController {
 
     private final AskService asks;
     private final JobStore jobs;
+    private final JobStreamRegistry stream;
 
-    public AskController(AskService asks, JobStore jobs) {
+    public AskController(AskService asks, JobStore jobs, JobStreamRegistry stream) {
         this.asks = asks;
         this.jobs = jobs;
+        this.stream = stream;
     }
 
     @PostMapping("/documents/{documentId}/ask")
@@ -79,6 +84,13 @@ public class AskController {
             job.cancel(Instant.now());
         }
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping(value = "/jobs/{jobId}/stream", produces = "text/event-stream")
+    public SseEmitter stream(@PathVariable UUID jobId) {
+        // Long timeout — deliberation can take a while; 0L means "no timeout".
+        SseEmitter emitter = new SseEmitter(Duration.ofMinutes(15).toMillis());
+        return stream.subscribe(jobId, emitter);
     }
 
     private AskJobResponse toResponse(AskJob job) {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.aeyer.anchor.protocol.ask.AgentEnvelope;
 import io.aeyer.anchor.protocol.ask.EvidenceAccess;
 import io.aeyer.anchor.protocol.ask.JobStatus;
+import io.aeyer.anchor.protocol.sse.JobEventType;
 import io.aeyer.anchor.server.domain.DocumentContext;
 import io.aeyer.anchor.server.jobs.AskJob;
 import io.aeyer.anchor.server.jobs.JobStore;
@@ -13,6 +14,7 @@ import io.aeyer.anchor.server.llm.Embedding;
 import io.aeyer.anchor.server.llm.LMStudioClient;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepository;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepositoryDomain.ChunkSearchHit;
+import io.aeyer.anchor.server.sse.JobStreamRegistry;
 import io.aeyer.anchor.server.workers.WorkerPools;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
@@ -26,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +58,7 @@ public class AskService {
     private final LMStudioClient llm;
     private final WorkerPools pools;
     private final ObjectMapper mapper;
+    private final JobStreamRegistry stream;
 
     @Value("classpath:prompts/ask-proposer.txt") Resource proposerPrompt;
     @Value("classpath:prompts/ask-critic.txt") Resource criticPrompt;
@@ -71,12 +75,14 @@ public class AskService {
     private String synthesiserTpl;
 
     public AskService(JobStore jobs, DocumentRepository documents,
-                      LMStudioClient llm, WorkerPools pools, ObjectMapper mapper) {
+                      LMStudioClient llm, WorkerPools pools, ObjectMapper mapper,
+                      JobStreamRegistry stream) {
         this.jobs = jobs;
         this.documents = documents;
         this.llm = llm;
         this.pools = pools;
         this.mapper = mapper;
+        this.stream = stream;
     }
 
     @PostConstruct
@@ -111,41 +117,59 @@ public class AskService {
             List<ChunkSearchHit> topChunks = topByScore(retrieved, topSections * topChunksPerSection);
 
             // Proposer
-            job.transition(JobStatus.PROPOSING);
-            AgentEnvelope proposer = runProposer(ctx, topChunks, job.query());
+            transitionWithEvent(job, JobStatus.PROPOSING);
+            AgentEnvelope proposer = runProposer(job.jobId(), ctx, topChunks, job.query());
             job.setProposer(proposer);
             if (proposer.error() != null) {
-                job.fail("Proposer failed: " + proposer.error(), Instant.now());
+                failJob(job, "Proposer failed: " + proposer.error());
                 return;
             }
+            stream.emitAgentComplete(job.jobId(), JobEventType.PROPOSER_COMPLETE, proposer.response());
 
-            // Critic — macro view only
-            job.transition(JobStatus.CRITIQUING);
+            // Critic — macro view only. Blocking call (output is JSON, not worth streaming).
+            transitionWithEvent(job, JobStatus.CRITIQUING);
             AgentEnvelope critic = runCritic(ctx, job.query(), proposer.response());
             job.setCritic(critic);
+            stream.emitAgentComplete(job.jobId(), JobEventType.CRITIC_COMPLETE,
+                    critic.response() == null ? "(critic failed)" : critic.response());
             // Critic failure isn't fatal — synthesiser can proceed with no challenges.
 
             // Synthesiser — full hierarchy + debate
-            job.transition(JobStatus.SYNTHESISING);
-            AgentEnvelope synthesiser = runSynthesiser(ctx, topChunks, job.query(),
+            transitionWithEvent(job, JobStatus.SYNTHESISING);
+            AgentEnvelope synthesiser = runSynthesiser(job.jobId(), ctx, topChunks, job.query(),
                     proposer.response(), critic);
             job.setSynthesiser(synthesiser);
             if (synthesiser.error() != null) {
-                job.fail("Synthesiser failed: " + synthesiser.error(), Instant.now());
+                failJob(job, "Synthesiser failed: " + synthesiser.error());
                 return;
             }
+            stream.emitAgentComplete(job.jobId(), JobEventType.SYNTHESISER_COMPLETE, synthesiser.response());
 
             String finalResponse = extractSynthesiserResponse(synthesiser.response());
             job.complete(finalResponse, Instant.now());
+            stream.emitFinal(job.jobId(), finalResponse);
         } catch (Exception e) {
             log.error("Deliberation {} failed", job.jobId(), e);
-            job.fail(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(), Instant.now());
+            failJob(job, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } finally {
+            stream.close(job.jobId());
         }
+    }
+
+    private void transitionWithEvent(AskJob job, JobStatus next) {
+        job.transition(next);
+        stream.emitStatus(job.jobId(), next.name());
+    }
+
+    private void failJob(AskJob job, String message) {
+        job.fail(message, Instant.now());
+        stream.emitFailure(job.jobId(), message);
     }
 
     // ---- Agents ----
 
-    private AgentEnvelope runProposer(DocumentContext ctx, List<ChunkSearchHit> topChunks, String query) {
+    private AgentEnvelope runProposer(UUID jobId, DocumentContext ctx,
+                                      List<ChunkSearchHit> topChunks, String query) {
         Instant start = Instant.now();
         String prompt = proposerTpl
                 .replace("{document_title}", nullSafe(ctx.document().title()))
@@ -155,7 +179,8 @@ public class AskService {
                 .replace("{top_chunks_with_section_attribution}", topChunksBlock(topChunks))
                 .replace("{query}", nullSafe(query));
         try {
-            String response = chat(prompt, proposerTemp);
+            String response = chatStreaming(prompt, proposerTemp,
+                    token -> stream.emitToken(jobId, JobEventType.PROPOSER_THOUGHT, token));
             return new AgentEnvelope("proposer", EvidenceAccess.FULL_HIERARCHY,
                     start, Instant.now(), response, null, null, null);
         } catch (Exception e) {
@@ -183,7 +208,7 @@ public class AskService {
         }
     }
 
-    private AgentEnvelope runSynthesiser(DocumentContext ctx, List<ChunkSearchHit> topChunks,
+    private AgentEnvelope runSynthesiser(UUID jobId, DocumentContext ctx, List<ChunkSearchHit> topChunks,
                                          String query, String proposerResponse, AgentEnvelope critic) {
         Instant start = Instant.now();
         List<String> challenges = critic.challenges() == null ? List.of() : critic.challenges();
@@ -200,7 +225,8 @@ public class AskService {
                 .replace("{proposer_response}", nullSafe(proposerResponse))
                 .replace("{critic_challenges_formatted}", challengesFormatted);
         try {
-            String raw = chat(prompt, synthTemp);
+            String raw = chatStreaming(prompt, synthTemp,
+                    token -> stream.emitToken(jobId, JobEventType.SYNTHESISER_THOUGHT, token));
             Map<String, Object> grounding = parseSynthesiserGrounding(raw);
             return new AgentEnvelope("synthesiser", EvidenceAccess.FULL_HIERARCHY_PLUS_DEBATE,
                     start, Instant.now(), raw, grounding, null, null);
@@ -225,6 +251,28 @@ public class AskService {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException re) throw re;
             throw new IngestException("Deliberation chat call failed", cause);
+        }
+    }
+
+    /**
+     * Streaming variant — token handler fires as the model emits tokens (used to
+     * push *_THOUGHT SSE events). The chat-pool slot is held for the entire
+     * stream so the single Gemma slot is respected; the stream future resolves
+     * on [DONE].
+     */
+    private String chatStreaming(String prompt, double temperature, Consumer<String> tokenHandler) {
+        try {
+            ChatCompletion completion = pools.chatPool()
+                    .submit(() -> llm.completeStreaming("", prompt, temperature, tokenHandler).get())
+                    .get();
+            return completion.content() == null ? "" : completion.content().trim();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IngestException("Interrupted during deliberation streaming", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new IngestException("Deliberation streaming chat call failed", cause);
         }
     }
 
