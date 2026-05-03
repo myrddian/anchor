@@ -50,7 +50,7 @@ public class WorkerPools {
     }
 
     @PostConstruct
-    void init() {
+    public void init() {
         pools.put(CHAT, createPool(CHAT, properties.getChat().getPoolSize()));
         pools.put(EMBEDDING, createPool(EMBEDDING, properties.getEmbedding().getPoolSize()));
         pools.put(DELIBERATION, createPool(DELIBERATION, properties.getDeliberation().getPoolSize()));
@@ -99,7 +99,7 @@ public class WorkerPools {
     }
 
     @PreDestroy
-    void shutdown() {
+    public void shutdown() {
         // Orchestration pools first: stop new orchestrators submitting into chat/embedding.
         ORCHESTRATION_POOLS.forEach(this::drain);
         // Then inference pools: any in-flight LLM/embedding calls finish or time out.
