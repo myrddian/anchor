@@ -52,6 +52,7 @@ public class LMStudioClient {
     private final OkHttpClient embeddingHttp;
     private final AtomicBoolean embeddingDimVerified = new AtomicBoolean(false);
 
+    @org.springframework.beans.factory.annotation.Autowired
     public LMStudioClient(LMStudioProperties props, ObjectMapper mapper) {
         this(props, mapper, UnaryOperator.identity());
     }
