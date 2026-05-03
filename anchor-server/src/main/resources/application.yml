@@ -41,6 +41,10 @@ lmstudio:
   chat-model: ${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}
   embedding-model: ${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}
   embedding-dim: 768
+  # Bearer token for the OpenAI-compatible endpoint. Empty for vanilla local
+  # LM Studio; set when pointing at a provider that requires auth (real OpenAI,
+  # vLLM with auth, Anthropic-compat proxy, etc.).
+  api-key: ${LM_STUDIO_API_KEY:}
   timeouts:
     blocking-seconds: 60
     streaming-seconds: 90

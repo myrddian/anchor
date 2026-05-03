@@ -50,6 +50,47 @@ class LMStudioClientTest {
     }
 
     @Test
+    void api_key_when_set_is_sent_as_bearer_on_chat_streaming_and_embedding() throws Exception {
+        props.setApiKey("sk-test-token-1234");
+        client = new LMStudioClient(props, mapper);
+
+        // Three calls back-to-back: blocking chat, streaming chat, embedding.
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"choices\":[{\"message\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}"));
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"y\"}}]}\n\ndata: [DONE]\n\n"));
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"data\":[{\"embedding\":[0.1,0.2,0.3,0.4]}]}"));
+
+        client.complete("s", "u", 0.0);
+        client.completeStreaming("s", "u", 0.0, t -> {}).get(5, TimeUnit.SECONDS);
+        client.embed("hi");
+
+        for (int i = 0; i < 3; i++) {
+            RecordedRequest request = server.takeRequest();
+            assertThat(request.getHeader("Authorization"))
+                    .as("call %d should send Bearer auth", i)
+                    .isEqualTo("Bearer sk-test-token-1234");
+        }
+    }
+
+    @Test
+    void api_key_when_blank_means_no_authorization_header() throws Exception {
+        // Default props leaves apiKey blank — covers the local-LM-Studio case.
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"choices\":[{\"message\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}"));
+
+        client.complete("s", "u", 0.0);
+
+        RecordedRequest request = server.takeRequest();
+        assertThat(request.getHeader("Authorization")).isNull();
+    }
+
+    @Test
     void complete_parses_chat_completion() throws Exception {
         server.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")

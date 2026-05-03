@@ -42,12 +42,18 @@ public class LMStudioHealthIndicator implements HealthIndicator {
                 .withDetail("base-url", props.getBaseUrl())
                 .withDetail("chat-model", props.getChatModel())
                 .withDetail("embedding-model", props.getEmbeddingModel())
-                .withDetail("embedding-dim-expected", props.getEmbeddingDim());
+                .withDetail("embedding-dim-expected", props.getEmbeddingDim())
+                .withDetail("api-key-configured", props.hasApiKey());
 
-        Request request = new Request.Builder()
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(props.getBaseUrl() + "/models")
-                .get()
-                .build();
+                .get();
+        if (props.hasApiKey()) {
+            // Some providers 401 on /models without auth; mirror the chat /
+            // embedding calls so the probe reflects what they'd see.
+            requestBuilder.header("Authorization", "Bearer " + props.getApiKey());
+        }
+        Request request = requestBuilder.build();
         try (Response response = probeClient.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 return builder.withDetail("probe", "ok").build();
