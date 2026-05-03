@@ -83,9 +83,9 @@ public class LMStudioClient {
 
     public ChatCompletion complete(String systemPrompt, String userPrompt, double temperature) {
         Map<String, Object> body = chatRequestBody(systemPrompt, userPrompt, temperature, false);
-        Request request = new Request.Builder()
+        Request request = withAuth(new Request.Builder()
                 .url(props.getBaseUrl() + "/chat/completions")
-                .post(RequestBody.create(toJson(body), JSON))
+                .post(RequestBody.create(toJson(body), JSON)))
                 .build();
 
         String responseBody = executeWithRetry(blockingHttp, request, "chat");
@@ -104,10 +104,10 @@ public class LMStudioClient {
             double temperature,
             Consumer<String> tokenHandler) {
         Map<String, Object> body = chatRequestBody(systemPrompt, userPrompt, temperature, true);
-        Request request = new Request.Builder()
+        Request request = withAuth(new Request.Builder()
                 .url(props.getBaseUrl() + "/chat/completions")
                 .post(RequestBody.create(toJson(body), JSON))
-                .header("Accept", "text/event-stream")
+                .header("Accept", "text/event-stream"))
                 .build();
 
         CompletableFuture<ChatCompletion> future = new CompletableFuture<>();
@@ -172,9 +172,9 @@ public class LMStudioClient {
         body.put("model", props.getEmbeddingModel());
         body.put("input", texts);
 
-        Request request = new Request.Builder()
+        Request request = withAuth(new Request.Builder()
                 .url(props.getBaseUrl() + "/embeddings")
-                .post(RequestBody.create(toJson(body), JSON))
+                .post(RequestBody.create(toJson(body), JSON)))
                 .build();
 
         String responseBody = executeWithRetry(embeddingHttp, request, "embedding");
@@ -294,6 +294,18 @@ public class LMStudioClient {
                     u.path("total_tokens").isInt() ? u.path("total_tokens").asInt() : null);
         }
         return new ChatCompletion(content, finish, usage);
+    }
+
+    /**
+     * Stamps a Bearer token onto the request when {@code lmstudio.api-key} is
+     * set. No-op for vanilla local LM Studio (which accepts unauthenticated
+     * calls); required when pointing at any provider that gates on auth.
+     */
+    private Request.Builder withAuth(Request.Builder builder) {
+        if (props.hasApiKey()) {
+            builder.header("Authorization", "Bearer " + props.getApiKey());
+        }
+        return builder;
     }
 
     private byte[] toJson(Object value) {

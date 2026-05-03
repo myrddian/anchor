@@ -69,7 +69,7 @@ points:
 | 6 — Maven Central | Open | ANC-22..ANC-24 |
 
 87 tests; 18 of them are integration tests gated on a pgvector instance
-reachable on `localhost:5432`. The integration suite passes against
+reachable on `localhost:5433`. The integration suite passes against
 `pgvector/pgvector:pg16`.
 
 The client SDK API is **not stable** until v0.2.0; nothing is published to
@@ -99,8 +99,10 @@ Maven Central yet.
 docker compose up -d postgres
 ```
 
-This brings up `pgvector/pgvector:pg16` on port 5432 with database `anchor`,
-user `anchor`, password `anchor`.
+This brings up `pgvector/pgvector:pg16` on **host port 5433** (not the
+postgres default 5432) with database `anchor`, user `anchor`, password
+`anchor`. The non-default port keeps Anchor from fighting other local
+postgres instances on 5432.
 
 ### 2. LM Studio
 
@@ -108,11 +110,22 @@ Run LM Studio anywhere on your LAN with **chat:** Gemma 4 E4B (one slot) and
 **embedding:** `nomic-embed-text-v1.5` (768-dim, two slots). Note the OpenAI-
 compatible base URL.
 
-### 3. Server
+### 3. Configure (one-time)
 
 ```bash
-LM_STUDIO_BASE_URL=http://mac-studio.local:1234/v1 \
-  ./gradlew :anchor-server:bootRun
+cp .env.example .env
+$EDITOR .env       # set LM_STUDIO_BASE_URL etc.
+```
+
+The `.env` file is gitignored. Spring Boot reads its values as system env
+vars; `scripts/smoke-test.sh` auto-sources it. Or skip the file and pass
+the env vars directly on every command — both work.
+
+### 4. Server
+
+```bash
+set -a; source .env; set +a   # or pass LM_STUDIO_BASE_URL=… inline
+./gradlew :anchor-server:bootRun
 ```
 
 Server boots on `:8080` by default. Watch the startup log for the named
@@ -120,7 +133,7 @@ worker threads (`chat-worker-0`, `embedding-worker-0..1`,
 `deliberation-worker-0..3`, `ingest-worker-0`) — that's how SPEC §7.9 thread
 correlation surfaces in practice.
 
-### 4. Shell (interactive)
+### 5. Shell (interactive)
 
 ```bash
 ./gradlew :anchor-shell:bootRun
@@ -135,7 +148,7 @@ anchor:> ask "does compound X inhibit enzyme Y"
 anchor:> demo "does compound X inhibit enzyme Y"   # /retrieve + /ask side-by-side
 ```
 
-### 5. SDK (Java)
+### 6. SDK (Java)
 
 ```java
 AnchorClient anchor = AnchorClient.builder()
@@ -165,7 +178,7 @@ docker compose up -d postgres       # for integration tests
 ./gradlew test                      # now includes the gated integration suite
 ```
 
-Integration tests probe `localhost:5432` for a pgvector instance with the
+Integration tests probe `localhost:5433` for a pgvector instance with the
 `vector` extension installed and skip gracefully if absent. Override the
 target with `ANCHOR_TEST_POSTGRES_URL=jdbc:postgresql://host:port/db`.
 

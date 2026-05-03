@@ -2,7 +2,9 @@ spring:
   application:
     name: anchor-server
   datasource:
-    url: ${ANCHOR_DB_URL:jdbc:postgresql://localhost:5432/anchor}
+    # Default points at the docker-compose stack which binds host 5433 to
+    # avoid collision with other local postgres (e.g. VoidCore on 5432).
+    url: ${ANCHOR_DB_URL:jdbc:postgresql://localhost:5433/anchor}
     username: ${ANCHOR_DB_USER:anchor}
     password: ${ANCHOR_DB_PASSWORD:anchor}
     driver-class-name: org.postgresql.Driver
@@ -28,7 +30,10 @@ management:
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: when-authorized
+      # Anchor is a local single-tenant tool — always surface the LM Studio /
+      # database probe details so misconfiguration is obvious without log diving.
+      show-details: always
+      show-components: always
 
 # LM Studio (OpenAI-compatible). Hosted on the Mac Studio in dev.
 lmstudio:
@@ -36,6 +41,10 @@ lmstudio:
   chat-model: ${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}
   embedding-model: ${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}
   embedding-dim: 768
+  # Bearer token for the OpenAI-compatible endpoint. Empty for vanilla local
+  # LM Studio; set when pointing at a provider that requires auth (real OpenAI,
+  # vLLM with auth, Anthropic-compat proxy, etc.).
+  api-key: ${LM_STUDIO_API_KEY:}
   timeouts:
     blocking-seconds: 60
     streaming-seconds: 90
