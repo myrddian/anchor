@@ -56,10 +56,10 @@ worker:
     pool-size: ${WORKER_INGEST_POOL_SIZE:1}
   shutdown-timeout-seconds: ${WORKER_SHUTDOWN_TIMEOUT_SECONDS:30}
 
-# Job store retention.
+# Job store retention. ISO-8601 durations so Spring @Scheduled parses cleanly.
 jobs:
-  retention-after-completion: 2h
-  watchdog-interval: 10m
+  retention-after-completion: PT2H
+  watchdog-interval: PT10M
 
 # Ingest defaults.
 ingest:
