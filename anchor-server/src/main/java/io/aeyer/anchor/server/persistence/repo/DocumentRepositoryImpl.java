@@ -19,7 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -38,10 +40,12 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
     private EntityManager em;
 
     private final EntityToDomainMapper mapper;
+    private final JdbcTemplate jdbc;
 
     @Autowired
-    public DocumentRepositoryImpl(EntityToDomainMapper mapper) {
+    public DocumentRepositoryImpl(EntityToDomainMapper mapper, DataSource dataSource) {
         this.mapper = mapper;
+        this.jdbc = new JdbcTemplate(dataSource);
     }
 
     @Override
@@ -117,5 +121,96 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
             chapters.add(new DocumentContext.ChapterContext(chapter, sections));
         }
         return Optional.of(new DocumentContext(document, chapters));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Document> findPageAsDomain(int limit, int offset, String titleSubstring) {
+        String jpql;
+        var params = new java.util.HashMap<String, Object>();
+        if (titleSubstring == null || titleSubstring.isBlank()) {
+            jpql = "SELECT d FROM DocumentDbo d ORDER BY d.ingestedAt DESC";
+        } else {
+            jpql = "SELECT d FROM DocumentDbo d WHERE LOWER(d.title) LIKE :q ORDER BY d.ingestedAt DESC";
+            params.put("q", "%" + titleSubstring.toLowerCase() + "%");
+        }
+        var query = em.createQuery(jpql, DocumentDbo.class)
+                .setFirstResult(Math.max(0, offset))
+                .setMaxResults(Math.max(1, Math.min(500, limit)));
+        params.forEach(query::setParameter);
+        return query.getResultList().stream().map(mapper::toDomain).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long countMatching(String titleSubstring) {
+        if (titleSubstring == null || titleSubstring.isBlank()) {
+            return em.createQuery("SELECT COUNT(d) FROM DocumentDbo d", Long.class).getSingleResult();
+        }
+        return em.createQuery("SELECT COUNT(d) FROM DocumentDbo d WHERE LOWER(d.title) LIKE :q", Long.class)
+                .setParameter("q", "%" + titleSubstring.toLowerCase() + "%")
+                .getSingleResult();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DocumentCounts countsFor(UUID documentId) {
+        Long chapters = em.createQuery(
+                "SELECT COUNT(c) FROM ChapterDbo c WHERE c.documentId = :did", Long.class)
+                .setParameter("did", documentId).getSingleResult();
+        Long sections = em.createQuery(
+                "SELECT COUNT(s) FROM SectionDbo s WHERE s.chapterId IN " +
+                        "(SELECT c.id FROM ChapterDbo c WHERE c.documentId = :did)", Long.class)
+                .setParameter("did", documentId).getSingleResult();
+        Long chunks = em.createQuery(
+                "SELECT COUNT(k) FROM ChunkDbo k WHERE k.paragraphId IN " +
+                        "(SELECT p.id FROM ParagraphDbo p WHERE p.sectionId IN " +
+                        "(SELECT s.id FROM SectionDbo s WHERE s.chapterId IN " +
+                        "(SELECT c.id FROM ChapterDbo c WHERE c.documentId = :did)))", Long.class)
+                .setParameter("did", documentId).getSingleResult();
+        return new DocumentCounts(chapters.intValue(), sections.intValue(), chunks.intValue());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChunkSearchHit> findSimilarChunksInDocument(UUID documentId, float[] queryEmbedding, int limit) {
+        // pgvector cosine search restricted to one document. JdbcTemplate path because
+        // JPA native parameter binding for `vector` is awkward — pgvector text format
+        // sidesteps the issue.
+        String vectorLiteral = toPgVectorText(queryEmbedding);
+        String sql = """
+                SELECT k.id AS chunk_id,
+                       k.paragraph_id,
+                       k.text AS chunk_text,
+                       p.summary AS paragraph_summary,
+                       s.title AS section_title,
+                       1 - (k.embedding <=> ?::vector) AS similarity
+                FROM chunks k
+                JOIN paragraphs p ON p.id = k.paragraph_id
+                JOIN sections s ON s.id = p.section_id
+                JOIN chapters c ON c.id = s.chapter_id
+                WHERE c.document_id = ?
+                ORDER BY k.embedding <=> ?::vector
+                LIMIT ?
+                """;
+        return jdbc.query(sql, (rs, rowNum) -> new ChunkSearchHit(
+                        (UUID) rs.getObject("chunk_id"),
+                        (UUID) rs.getObject("paragraph_id"),
+                        rs.getString("chunk_text"),
+                        rs.getString("paragraph_summary"),
+                        rs.getString("section_title"),
+                        rs.getDouble("similarity")),
+                vectorLiteral, documentId, vectorLiteral, Math.max(1, Math.min(50, limit)));
+    }
+
+    private static String toPgVectorText(float[] v) {
+        StringBuilder sb = new StringBuilder(v.length * 6 + 2);
+        sb.append('[');
+        for (int i = 0; i < v.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(v[i]);
+        }
+        sb.append(']');
+        return sb.toString();
     }
 }
