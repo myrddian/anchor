@@ -59,6 +59,7 @@ public class AskService {
     private final WorkerPools pools;
     private final ObjectMapper mapper;
     private final JobStreamRegistry stream;
+    private final SynthesiserOutputParser synthParser;
 
     @Value("classpath:prompts/ask-proposer.txt") Resource proposerPrompt;
     @Value("classpath:prompts/ask-critic.txt") Resource criticPrompt;
@@ -83,6 +84,7 @@ public class AskService {
         this.pools = pools;
         this.mapper = mapper;
         this.stream = stream;
+        this.synthParser = new SynthesiserOutputParser(mapper);
     }
 
     @PostConstruct
@@ -330,28 +332,11 @@ public class AskService {
     // ---- Synthesiser parsing: split on RESPONSE: / GROUNDING: markers ----
 
     private String extractSynthesiserResponse(String raw) {
-        if (raw == null) return "";
-        int responseIdx = raw.indexOf("RESPONSE:");
-        int groundingIdx = raw.indexOf("GROUNDING:");
-        if (responseIdx < 0) return raw.trim();
-        int start = responseIdx + "RESPONSE:".length();
-        int end = groundingIdx > start ? groundingIdx : raw.length();
-        return raw.substring(start, end).trim();
+        return synthParser.extractResponse(raw);
     }
 
     private Map<String, Object> parseSynthesiserGrounding(String raw) {
-        if (raw == null) return null;
-        int groundingIdx = raw.indexOf("GROUNDING:");
-        if (groundingIdx < 0) return null;
-        String jsonPart = raw.substring(groundingIdx + "GROUNDING:".length()).trim();
-        jsonPart = stripFences(jsonPart);
-        try {
-            JsonNode root = mapper.readTree(jsonPart);
-            return mapper.convertValue(root, new com.fasterxml.jackson.core.type.TypeReference<>() {});
-        } catch (Exception e) {
-            log.warn("Synthesiser grounding JSON unparseable: {}", e.getMessage());
-            return Map.of("raw_output", truncate(jsonPart, 500));
-        }
+        return synthParser.extractGrounding(raw);
     }
 
     // ---- Evidence formatting ----
