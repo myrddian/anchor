@@ -94,9 +94,14 @@ if [[ "${ANCHOR_SKIP_BOOT:-}" != "1" ]]; then
 fi
 
 echo "==> waiting for /actuator/health"
+# Poll for ANY HTTP response — Spring Boot returns 503 when overall health is
+# DOWN (e.g. LM Studio probe failing), but that still means the server is up
+# and ready to tell us *which* component is broken. Treating 200 and 503 the
+# same here so we can show that detail in the next stage.
 for i in $(seq 1 60); do
-  if curl -fsS "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
-    echo "  ✓ /actuator/health responding"
+  HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/actuator/health" 2>/dev/null || echo 000)"
+  if [[ "${HTTP_CODE}" == "200" || "${HTTP_CODE}" == "503" ]]; then
+    echo "  ✓ /actuator/health responding (HTTP ${HTTP_CODE})"
     break
   fi
   if [[ ${i} -eq 60 ]]; then
@@ -108,10 +113,10 @@ done
 
 # 3. Health check -------------------------------------------------------------
 echo "==> 3/5 checking /actuator/health components"
-HEALTH="$(curl -fsS "${BASE_URL}/actuator/health")"
-# If show-details=always isn't taking effect (e.g. running an old build),
-# the response collapses to {"status":"UP"} and we can't tell which
-# component is broken — print the body so the operator sees that.
+# No -f flag: a 503 still has a body listing per-component status. Without
+# the body we'd lose the "why is LM Studio down" detail and abort blind.
+HEALTH="$(curl -sS "${BASE_URL}/actuator/health" 2>/dev/null || echo '{}')"
+
 if ! echo "${HEALTH}" | grep -q '"components"'; then
   echo "✗ /actuator/health returned no component breakdown:" >&2
   echo "${HEALTH}" | jq . 2>/dev/null || echo "${HEALTH}" >&2
@@ -125,15 +130,24 @@ if echo "${HEALTH}" | jq -e '.components.LMStudio.status == "UP"' >/dev/null 2>&
   echo "  ✓ LM Studio reachable"
 else
   echo "✗ LM Studio probe failed:" >&2
-  echo "${HEALTH}" | jq '.components.LMStudio' 2>/dev/null || echo "${HEALTH}"
+  echo "${HEALTH}" | jq '.components.LMStudio' >&2 2>/dev/null || echo "${HEALTH}" >&2
+  echo >&2
+  echo "  Last 30 lines of /tmp/anchor-smoke.log:" >&2
+  tail -30 /tmp/anchor-smoke.log 2>/dev/null | sed 's/^/    /' >&2
   exit 1
 fi
 if echo "${HEALTH}" | jq -e '.components.db.status == "UP"' >/dev/null 2>&1; then
   echo "  ✓ database reachable"
 fi
-echo "${HEALTH}" | jq -e '.status == "UP"' >/dev/null \
-  && echo "  ✓ overall status UP" \
-  || { echo "✗ overall status not UP:"; echo "${HEALTH}" | jq .; exit 1; }
+if echo "${HEALTH}" | jq -e '.status == "UP"' >/dev/null 2>&1; then
+  echo "  ✓ overall status UP"
+else
+  # One or more non-LM-Studio components are DOWN — surface them rather than
+  # press on into ingest with broken infrastructure.
+  echo "✗ overall status not UP:" >&2
+  echo "${HEALTH}" | jq . >&2
+  exit 1
+fi
 
 # 4. Ingest -------------------------------------------------------------------
 echo "==> 4/5 ingesting ${PDF_PATH}"
