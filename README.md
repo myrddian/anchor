@@ -110,11 +110,22 @@ Run LM Studio anywhere on your LAN with **chat:** Gemma 4 E4B (one slot) and
 **embedding:** `nomic-embed-text-v1.5` (768-dim, two slots). Note the OpenAI-
 compatible base URL.
 
-### 3. Server
+### 3. Configure (one-time)
 
 ```bash
-LM_STUDIO_BASE_URL=http://mac-studio.local:1234/v1 \
-  ./gradlew :anchor-server:bootRun
+cp .env.example .env
+$EDITOR .env       # set LM_STUDIO_BASE_URL etc.
+```
+
+The `.env` file is gitignored. Spring Boot reads its values as system env
+vars; `scripts/smoke-test.sh` auto-sources it. Or skip the file and pass
+the env vars directly on every command — both work.
+
+### 4. Server
+
+```bash
+set -a; source .env; set +a   # or pass LM_STUDIO_BASE_URL=… inline
+./gradlew :anchor-server:bootRun
 ```
 
 Server boots on `:8080` by default. Watch the startup log for the named
@@ -122,7 +133,7 @@ worker threads (`chat-worker-0`, `embedding-worker-0..1`,
 `deliberation-worker-0..3`, `ingest-worker-0`) — that's how SPEC §7.9 thread
 correlation surfaces in practice.
 
-### 4. Shell (interactive)
+### 5. Shell (interactive)
 
 ```bash
 ./gradlew :anchor-shell:bootRun
@@ -137,7 +148,7 @@ anchor:> ask "does compound X inhibit enzyme Y"
 anchor:> demo "does compound X inhibit enzyme Y"   # /retrieve + /ask side-by-side
 ```
 
-### 5. SDK (Java)
+### 6. SDK (Java)
 
 ```java
 AnchorClient anchor = AnchorClient.builder()

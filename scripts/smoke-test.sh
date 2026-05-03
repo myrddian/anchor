@@ -10,18 +10,31 @@
 # Usage:
 #   scripts/smoke-test.sh /path/to/paper.pdf "your question here"
 #
-# Env:
+# Env (or copy .env.example to .env and edit — auto-sourced below):
+#   LM_STUDIO_BASE_URL       e.g. http://mac-studio.local:1234/v1
+#   LM_STUDIO_CHAT_MODEL     e.g. gemma-3-4b-it
+#   LM_STUDIO_EMBEDDING_MODEL e.g. nomic-embed-text-v1.5
+#   ANCHOR_DB_URL            (default jdbc:postgresql://localhost:5433/anchor)
 #   ANCHOR_BASE_URL          (default http://localhost:8080)
-#   LM_STUDIO_BASE_URL       passed through to the server if it isn't already set
 #   ANCHOR_SKIP_COMPOSE=1    skip `docker compose up -d postgres`
 #   ANCHOR_SKIP_BOOT=1       skip starting the server (assume it's already running)
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Auto-source .env if present so the operator only has to fill in LM Studio /
+# DB key parameters once. Standard dotenv semantics: values in the file
+# overwrite shell exports (it's the config-of-record, not a fallback). For
+# one-off overrides edit .env, or pass on the command line *after* clearing
+# the .env value.
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a; source "${REPO_ROOT}/.env"; set +a
+fi
+
 PDF_PATH="${1:-}"
 QUERY="${2:-What is the central claim of this paper?}"
 BASE_URL="${ANCHOR_BASE_URL:-http://localhost:8080}"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [[ -z "${PDF_PATH}" ]]; then
   echo "usage: $0 /path/to/paper.pdf [\"question\"]" >&2
