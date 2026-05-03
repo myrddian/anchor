@@ -2,7 +2,9 @@ spring:
   application:
     name: anchor-server
   datasource:
-    url: ${ANCHOR_DB_URL:jdbc:postgresql://localhost:5432/anchor}
+    # Default points at the docker-compose stack which binds host 5433 to
+    # avoid collision with other local postgres (e.g. VoidCore on 5432).
+    url: ${ANCHOR_DB_URL:jdbc:postgresql://localhost:5433/anchor}
     username: ${ANCHOR_DB_USER:anchor}
     password: ${ANCHOR_DB_PASSWORD:anchor}
     driver-class-name: org.postgresql.Driver

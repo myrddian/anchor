@@ -47,7 +47,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 @SpringBootTest(classes = AnchorServerApplication.class)
 @TestPropertySource(properties = {
-        "spring.datasource.url=${anchor.test.postgres.url:jdbc:postgresql://localhost:5432/anchor}",
+        "spring.datasource.url=${anchor.test.postgres.url:jdbc:postgresql://localhost:5433/anchor}",
         "spring.datasource.username=anchor",
         "spring.datasource.password=anchor"
 })
@@ -61,7 +61,7 @@ class Phase3AskIntegrationTest {
         if (fromProp != null && !fromProp.isBlank()) return fromProp;
         String fromEnv = System.getenv("ANCHOR_TEST_POSTGRES_URL");
         if (fromEnv != null && !fromEnv.isBlank()) return fromEnv;
-        return "jdbc:postgresql://localhost:5432/anchor";
+        return "jdbc:postgresql://localhost:5433/anchor";
     }
 
     static boolean postgresIsReachable() {

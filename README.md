@@ -69,7 +69,7 @@ points:
 | 6 — Maven Central | Open | ANC-22..ANC-24 |
 
 87 tests; 18 of them are integration tests gated on a pgvector instance
-reachable on `localhost:5432`. The integration suite passes against
+reachable on `localhost:5433`. The integration suite passes against
 `pgvector/pgvector:pg16`.
 
 The client SDK API is **not stable** until v0.2.0; nothing is published to
@@ -99,8 +99,10 @@ Maven Central yet.
 docker compose up -d postgres
 ```
 
-This brings up `pgvector/pgvector:pg16` on port 5432 with database `anchor`,
-user `anchor`, password `anchor`.
+This brings up `pgvector/pgvector:pg16` on **host port 5433** (not the
+postgres default 5432) with database `anchor`, user `anchor`, password
+`anchor`. The non-default port keeps Anchor from fighting other local
+postgres instances on 5432.
 
 ### 2. LM Studio
 
@@ -165,7 +167,7 @@ docker compose up -d postgres       # for integration tests
 ./gradlew test                      # now includes the gated integration suite
 ```
 
-Integration tests probe `localhost:5432` for a pgvector instance with the
+Integration tests probe `localhost:5433` for a pgvector instance with the
 `vector` extension installed and skip gracefully if absent. Override the
 target with `ANCHOR_TEST_POSTGRES_URL=jdbc:postgresql://host:port/db`.
 
