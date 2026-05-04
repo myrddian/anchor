@@ -113,18 +113,22 @@ cp .env.example .env                             # set LLM_BASE_URL etc.
 ./gradlew :anchor-server:bootRun                 # boots on :8090
 ```
 
-Or run the whole stack in containers — server + postgres together:
+Or kitchen-sink it — everything (postgres + server + Jaeger + Prometheus)
+in one shot:
 
 ```bash
 docker compose --profile app up --build
 ```
 
-To see traces + metrics locally, layer in Jaeger and Prometheus:
+Then:
+- **App**: <http://localhost:8090>
+- **Swagger**: <http://localhost:8090/swagger-ui/index.html>
+- **Jaeger** (traces): <http://localhost:16686>
+- **Prometheus** (metrics): <http://localhost:9090>
 
-```bash
-docker compose --profile observability up           # Jaeger :16686, Prometheus :9090
-# or all together: --profile app --profile observability
-```
+If you only want the observability stack alongside a host-JVM `bootRun`,
+use `--profile observability` instead — same Jaeger + Prometheus, no
+containerised server.
 
 Then drive the API directly:
 

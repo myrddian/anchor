@@ -37,6 +37,7 @@ public class StructuralParser {
 
     public ParsedDocument parse(ExtractedDocument extracted) {
         String[] lines = extracted.text().split("\\R", -1);
+        ChapterDetector.Vocabulary vocab = chapterDetector.detectVocabulary(extracted.text());
         List<DetectedChapter> chapters = chapterDetector.detect(extracted.text(), extracted.outlineTopLevel());
 
         List<ParsedChapter> parsedChapters = new ArrayList<>(chapters.size());
@@ -50,7 +51,7 @@ public class StructuralParser {
             parsedChapters.add(new ParsedChapter(
                     chapter.title(), chapter.orderIndex(), chapter.synthetic(), parsedSections));
         }
-        return new ParsedDocument(extracted.title(), extracted.contentHash(), parsedChapters);
+        return new ParsedDocument(extracted.title(), extracted.contentHash(), vocab, parsedChapters);
     }
 
     private ParsedSection buildSection(String[] lines, DetectedSection section) {

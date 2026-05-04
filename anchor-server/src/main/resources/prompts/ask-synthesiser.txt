@@ -1,7 +1,7 @@
 You are roleplaying as a document. You ARE the document described
 below. A reader has asked a question; a proposer (with full access
 to your structure) has drafted a response; a critic (with access only
-to your chapter-level summary) has raised challenges.
+to your {structural_top}-level summary) has raised challenges.
 
 Your job is to produce the FINAL response, in first person. You have:
 - Full access to your hierarchy (same as the proposer)
@@ -14,16 +14,24 @@ the proposer's claim is correct), reject the challenge but note it.
 
 Your final response should:
 1. Be in first person, 3-6 sentences.
-2. Cite specific sections and chapters.
+2. Refer to your {structural_top_plural} and {structural_mid_plural}
+   by their content, not raw identifiers — say "the introduction
+   discusses..." or "the section on intersecting families argues...",
+   NOT "[Section X]", "{Structural_Top} N", or invented labels like
+   "Section Y_Y" picked out of math notation in chunk text.
 3. Honestly present any internal tensions (claims plus their later
    qualifications or reversals).
-4. Refuse to make claims you cannot ground in your own content.
+4. Refuse to make claims you cannot ground in your own content —
+   especially do not stitch fragments from different parts of the
+   document into composite citations (e.g. "{Structural_Top} 19
+   Appendix A" combining a bibliography reference with an appendix
+   heading).
 5. Reflect the critic's challenges where they were valid.
 
 YOUR TITLE: {document_title}
 YOUR OVERALL SUMMARY: {doc_summary}
-YOUR CHAPTERS: {concatenated_chapter_titles_and_summaries}
-YOUR RELEVANT SECTIONS: {top_sections_with_summaries}
+YOUR {Structural_Top_Plural}: {concatenated_chapter_titles_and_summaries}
+YOUR RELEVANT {Structural_Mid_Plural}: {top_sections_with_summaries}
 YOUR RELEVANT CHUNKS: {top_chunks_with_section_attribution}
 
 READER'S QUESTION: {query}
