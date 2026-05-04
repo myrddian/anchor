@@ -25,9 +25,16 @@ client = AnchorClient(
     api_token=None,                 # set when ANCHOR_API_TOKEN is enabled server-side
 )
 
-# Add a paper. Either way works:
-client.ingest("/srv/papers/dawkins-extended-phenotype.epub")        # server-side path
-client.ingest_upload("./papers/dawkins-extended-phenotype.epub")    # multipart upload
+# Add a paper. Both endpoints are async — return an IngestHandle.
+handle = client.ingest_upload("./papers/dawkins-extended-phenotype.epub")
+result = handle.await_completion(
+    timeout=1800,
+    on_progress=lambda s: print(f"{s['percent_complete']}% {s['phase']} — {s.get('message','')}"),
+)
+print(f"Ingested {result['result']['title']} as {result['document_id']}")
+
+# Or hand the server a path it can read directly:
+client.ingest("/srv/papers/dawkins-extended-phenotype.epub").await_completion()
 
 # Browse / search.
 for d in client.list_documents():
@@ -74,8 +81,10 @@ The token rides every HTTP call **and** the SSE subscription used by
 | `client.list_documents()` | `GET /documents` |
 | `client.use(document_id=...)` / `use(title_substring=...)` | client-side; `use(title_substring=...)` does one resolution `GET` |
 | `client.search_documents(query, k)` | `GET /documents/search` |
-| `client.ingest(path)` | `POST /ingest` |
-| `client.ingest_upload(path)` | `POST /ingest/upload` |
+| `client.ingest(path)` → `IngestHandle` | `POST /ingest` (202) |
+| `client.ingest_upload(path)` → `IngestHandle` | `POST /ingest/upload` (202) |
+| `ingest_handle.snapshot()` / `status()` | `GET /ingest/jobs/{id}` |
+| `ingest_handle.await_completion(timeout, on_progress)` | polls `GET /ingest/jobs/{id}` |
 | `doc.describe()` | `GET /documents/{id}` |
 | `doc.retrieve(query, k)` | `POST /retrieve` |
 | `doc.validate(chunk_id, query)` | `POST /validate` |

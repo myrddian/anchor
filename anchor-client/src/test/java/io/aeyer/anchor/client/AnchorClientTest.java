@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.aeyer.anchor.client.exceptions.AnchorClientException;
 import io.aeyer.anchor.protocol.ask.JobStatus;
 import io.aeyer.anchor.protocol.documents.DocumentDetailResponse;
-import io.aeyer.anchor.protocol.ingest.IngestResponse;
 import io.aeyer.anchor.protocol.retrieve.RetrieveResponse;
 import io.aeyer.anchor.protocol.validate.ValidateResponse;
 import java.io.IOException;
@@ -202,20 +201,19 @@ class AnchorClientTest {
     }
 
     @Test
-    void ingest_posts_to_ingest_endpoint() throws Exception {
-        UUID docId = UUID.randomUUID();
+    void ingest_posts_to_ingest_endpoint_and_returns_handle() throws Exception {
+        UUID jobId = UUID.randomUUID();
         server.enqueue(new MockResponse()
+                .setResponseCode(202)
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
-                        {"document_id":"%s","title":"x","source_path":"/p",
-                         "chapter_count":1,"section_count":1,"paragraph_count":1,"chunk_count":1,
-                         "ingested_at":"2026-05-04T00:00:00Z",
-                         "token_usage":{"summary_input_tokens":1,"summary_output_tokens":2,"embedding_inputs":3}}
-                        """.formatted(docId)));
+                        {"job_id":"%s","source_path":"/p","status":"QUEUED",
+                         "progress_url":"/ingest/jobs/%s"}
+                        """.formatted(jobId, jobId)));
 
-        IngestResponse response = client.ingest("/p");
+        var handle = client.ingest("/p");
 
-        assertEquals(docId, response.documentId());
+        assertEquals(jobId, handle.jobId());
         RecordedRequest req = server.takeRequest();
         assertEquals("/ingest", req.getPath());
     }
@@ -266,22 +264,21 @@ class AnchorClientTest {
     }
 
     @org.junit.jupiter.api.Test
-    void ingest_upload_posts_multipart_form_with_file_field(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        UUID docId = UUID.randomUUID();
+    void ingest_upload_posts_multipart_form_and_returns_handle(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        UUID jobId = UUID.randomUUID();
         server.enqueue(new MockResponse()
+                .setResponseCode(202)
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
-                        {"document_id":"%s","title":"Smith2024","source_path":"/uploads/x/Smith2024.pdf",
-                         "chapter_count":1,"section_count":1,"paragraph_count":1,"chunk_count":1,
-                         "ingested_at":"2026-05-04T00:00:00Z",
-                         "token_usage":{"summary_input_tokens":1,"summary_output_tokens":2,"embedding_inputs":3}}
-                        """.formatted(docId)));
+                        {"job_id":"%s","source_path":"/uploads/x/Smith2024.pdf","status":"QUEUED",
+                         "progress_url":"/ingest/jobs/%s"}
+                        """.formatted(jobId, jobId)));
         java.nio.file.Path local = tempDir.resolve("Smith2024.pdf");
         java.nio.file.Files.write(local, "%PDF-1.4 fake".getBytes());
 
-        IngestResponse response = client.ingestUpload(local);
+        var handle = client.ingestUpload(local);
 
-        assertEquals(docId, response.documentId());
+        assertEquals(jobId, handle.jobId());
         RecordedRequest req = server.takeRequest();
         assertEquals("/ingest/upload", req.getPath());
         assertTrue(req.getHeader("Content-Type").startsWith("multipart/form-data"),

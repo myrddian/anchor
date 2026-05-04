@@ -190,11 +190,17 @@ export class AnchorClient {
   // ---- Ingest ---------------------------------------------------------
 
   async ingest(sourcePath) {
-    return this._t.postJson("/ingest", { source_path: sourcePath });
+    const accepted = await this._t.postJson("/ingest", { source_path: sourcePath });
+    return new IngestHandle(accepted.job_id, this._t);
   }
 
   async ingestUpload(localFile) {
-    return this._t.postFile("/ingest/upload", localFile, guessContentType(localFile));
+    const accepted = await this._t.postFile(
+      "/ingest/upload",
+      localFile,
+      guessContentType(localFile)
+    );
+    return new IngestHandle(accepted.job_id, this._t);
   }
 
   // ---- Health ---------------------------------------------------------
@@ -284,6 +290,42 @@ export class AskHandle {
   /** Best-effort cancel. Server flips status; in-flight model call still finishes. */
   cancel() {
     return this._t.delete(`/jobs/${this.jobId}`);
+  }
+}
+
+export class IngestHandle {
+  constructor(jobId, transport) {
+    this.jobId = jobId;
+    this._t = transport;
+  }
+
+  /** Full progress envelope including phase / percent_complete / message. */
+  snapshot() {
+    return this._t.get(`/ingest/jobs/${this.jobId}`);
+  }
+
+  async status() {
+    return (await this.snapshot()).status;
+  }
+
+  /**
+   * Block until terminal or timeout. Calls onProgress(snap) after each poll
+   * if provided. Default 30-minute timeout — long books.
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.timeoutMs=1_800_000]
+   * @param {number} [opts.pollIntervalMs=1000]
+   * @param {(snap: object) => void} [opts.onProgress]
+   */
+  async awaitCompletion({ timeoutMs = 1_800_000, pollIntervalMs = 1000, onProgress } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const snap = await this.snapshot();
+      if (onProgress) onProgress(snap);
+      if (TERMINAL_STATUSES.has(snap.status)) return snap;
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+    throw new AnchorClientError(`Ingest did not complete within ${timeoutMs}ms`);
   }
 }
 

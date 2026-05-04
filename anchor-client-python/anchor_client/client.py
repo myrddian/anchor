@@ -13,6 +13,7 @@ from .exceptions import AnchorClientError
 
 
 _TERMINAL_STATUSES = {"COMPLETED", "FAILED", "CANCELLED"}
+_INGEST_TERMINAL_STATUSES = {"COMPLETED", "FAILED", "CANCELLED"}
 
 
 class _Transport:
@@ -138,16 +139,19 @@ class AnchorClient:
 
     # ---- Ingest ---------------------------------------------------------
 
-    def ingest(self, source_path: str) -> dict:
+    def ingest(self, source_path: str) -> "IngestHandle":
         """Server-side ingest — server reads the path from its own filesystem.
-        Use for automation on the same host."""
-        return self._t.post_json("/ingest", {"source_path": source_path})
+        Returns immediately with an IngestHandle; poll progress or block via
+        ``handle.await_completion()``. Pipeline runs minutes on a real book."""
+        accepted = self._t.post_json("/ingest", {"source_path": source_path})
+        return IngestHandle(accepted["job_id"], self._t)
 
-    def ingest_upload(self, local_file: Union[str, Path]) -> dict:
-        """Multipart upload then ingest. Use when the server can't see the
-        local path (different host, different user, etc.)."""
+    def ingest_upload(self, local_file: Union[str, Path]) -> "IngestHandle":
+        """Multipart upload then ingest. Returns an IngestHandle for progress
+        polling — use when the server can't see the local path."""
         path = Path(local_file)
-        return self._t.post_file("/ingest/upload", path, _guess_content_type(path))
+        accepted = self._t.post_file("/ingest/upload", path, _guess_content_type(path))
+        return IngestHandle(accepted["job_id"], self._t)
 
     # ---- Health / introspection ----------------------------------------
 
@@ -232,6 +236,40 @@ class AskHandle:
         """Best-effort cancel. Server flips status; an in-flight model call
         still finishes."""
         self._t.delete(f"/jobs/{self.job_id}")
+
+
+class IngestHandle:
+    """Live handle for an async ingest job. Mirrors AskHandle: poll via
+    ``snapshot()`` / ``status()``, block via ``await_completion()``."""
+
+    def __init__(self, job_id: str, transport: _Transport):
+        self.job_id = job_id
+        self._t = transport
+
+    def snapshot(self) -> dict:
+        """Full progress envelope including phase / percent / message."""
+        return self._t.get(f"/ingest/jobs/{self.job_id}")
+
+    def status(self) -> str:
+        return self.snapshot().get("status", "")
+
+    def await_completion(
+        self,
+        timeout: float = 1800.0,
+        poll_interval: float = 1.0,
+        on_progress=None,
+    ) -> dict:
+        """Block until terminal or timeout. Calls ``on_progress(snap)`` after
+        each poll if provided. Default 30-minute timeout — long books."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snap = self.snapshot()
+            if on_progress is not None:
+                on_progress(snap)
+            if snap.get("status") in _INGEST_TERMINAL_STATUSES:
+                return snap
+            time.sleep(poll_interval)
+        raise AnchorClientError(f"Ingest did not complete within {timeout}s")
 
 
 def _guess_content_type(path: Path) -> str:

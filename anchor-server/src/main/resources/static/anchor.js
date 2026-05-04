@@ -282,32 +282,81 @@ function setUploadStatus(message, kind) {
   if (kind) els.uploadStatus.classList.add(kind);
 }
 
+function renderProgress(percent, phase, message) {
+  const pct = Math.max(0, Math.min(100, percent || 0));
+  const phaseLabel = (phase || "").toLowerCase().replace(/_/g, " ");
+  const msg = message ? ` — ${message}` : "";
+  setUploadStatus(`${pct}%  ·  ${phaseLabel}${msg}`, null);
+  // Use a simple linear-gradient bar inside the status line so we don't need
+  // to reshape the upload-form grid for a separate <progress> element.
+  els.uploadStatus.style.background =
+    `linear-gradient(to right, var(--accent-subtle) 0%, var(--accent-subtle) ${pct}%, transparent ${pct}%, transparent 100%)`;
+}
+
+function clearProgressBar() {
+  els.uploadStatus.style.background = "";
+}
+
 async function uploadAndIngest(file) {
   els.uploadButton.disabled = true;
-  setUploadStatus(`Uploading ${file.name}… (this can take a minute on first ingest)`, null);
+  setUploadStatus(`Uploading ${file.name}…`, null);
+  clearProgressBar();
   const body = new FormData();
   body.append("file", file);
   try {
+    // Submit returns 202 with a job_id — server runs the multi-minute
+    // pipeline on the ingest pool while we poll for progress here.
     const response = await fetch("/ingest/upload", { method: "POST", body });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
     }
-    const result = await response.json();
+    const accepted = await response.json();
+    const jobId = accepted.job_id;
+    if (!jobId) throw new Error("Server did not return a job_id");
+    const job = await pollIngestJob(jobId);
+    if (job.status === "FAILED") {
+      throw new Error(job.error || "ingest failed (no error message)");
+    }
+    if (job.status === "CANCELLED") {
+      throw new Error("ingest cancelled");
+    }
+    const result = job.result || {};
     setUploadStatus(
-      `✓ Ingested "${result.title}" — ${result.chapter_count} chapters, ${result.chunk_count} chunks.`,
+      `✓ Ingested "${result.title || job.title}" — ${result.chapter_count ?? "?"} chapters, ${result.chunk_count ?? "?"} chunks.`,
       "ok",
     );
+    clearProgressBar();
     els.uploadFile.value = "";
     await loadDocuments();
     // Auto-select the freshly ingested document so the next ask targets it.
-    if (result.document_id) {
-      els.document.value = result.document_id;
-    }
+    const docId = result.document_id || job.document_id;
+    if (docId) els.document.value = docId;
   } catch (err) {
+    clearProgressBar();
     setUploadStatus(`✗ Upload failed: ${err.message}`, "err");
   } finally {
     els.uploadButton.disabled = false;
+  }
+}
+
+/**
+ * Poll GET /ingest/jobs/{id} every second until the job reaches a terminal
+ * state. Renders progress on each tick. Resolves with the final job
+ * envelope (caller checks status to differentiate completed/failed).
+ */
+async function pollIngestJob(jobId) {
+  while (true) {
+    const response = await fetch(`/ingest/jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error(`progress fetch HTTP ${response.status}`);
+    }
+    const job = await response.json();
+    renderProgress(job.percent_complete, job.phase, job.message);
+    if (job.status === "COMPLETED" || job.status === "FAILED" || job.status === "CANCELLED") {
+      return job;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
   }
 }
 

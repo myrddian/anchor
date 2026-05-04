@@ -12,8 +12,8 @@ keys match the wire format snake_case.
     print(result["final_response"])
 """
 
-from .client import AnchorClient, AnchorDocument, AskHandle
+from .client import AnchorClient, AnchorDocument, AskHandle, IngestHandle
 from .exceptions import AnchorClientError
 
-__all__ = ["AnchorClient", "AnchorDocument", "AskHandle", "AnchorClientError"]
+__all__ = ["AnchorClient", "AnchorDocument", "AskHandle", "IngestHandle", "AnchorClientError"]
 __version__ = "0.2.0"

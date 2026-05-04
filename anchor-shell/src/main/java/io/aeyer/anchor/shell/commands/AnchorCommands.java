@@ -3,12 +3,13 @@ package io.aeyer.anchor.shell.commands;
 import io.aeyer.anchor.client.AnchorClient;
 import io.aeyer.anchor.client.AnchorDocument;
 import io.aeyer.anchor.client.AskHandle;
+import io.aeyer.anchor.client.IngestHandle;
 import io.aeyer.anchor.protocol.ask.AskJobResponse;
 import io.aeyer.anchor.protocol.documents.DocumentDetailResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSearchHit;
 import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
-import io.aeyer.anchor.protocol.ingest.IngestResponse;
+import io.aeyer.anchor.protocol.ingest.IngestJobResponse;
 import io.aeyer.anchor.protocol.retrieve.RetrieveResponse;
 import io.aeyer.anchor.protocol.validate.AlternativeChunk;
 import io.aeyer.anchor.protocol.validate.ValidateQuickResponse;
@@ -40,17 +41,29 @@ public class AnchorCommands {
     }
 
     @ShellMethod(key = "ingest",
-            value = "Ingest a PDF. Local file → uploaded; otherwise treated as a server-side path.")
-    public String ingest(@ShellOption(help = "Local PDF path, or a path the server can read") String path) {
+            value = "Ingest a PDF / EPUB / etc. Local file → uploaded; otherwise treated as a server-side path.")
+    public String ingest(@ShellOption(help = "Local file path, or a path the server can read") String path) {
         java.nio.file.Path local = java.nio.file.Path.of(path);
         boolean isLocal = java.nio.file.Files.isRegularFile(local);
-        IngestResponse response = isLocal
-                ? client.ingestUpload(local)
-                : client.ingest(path);
+        IngestHandle handle = isLocal ? client.ingestUpload(local) : client.ingest(path);
+        // Long-running on a real book; print a progress line every poll so the
+        // chemist can see the % climb instead of staring at a stuck cursor.
+        IngestJobResponse result = handle.awaitCompletion(Duration.ofMinutes(30), snap -> {
+            String phase = snap.phase() == null ? "" : snap.phase().name().toLowerCase().replace('_', ' ');
+            String msg = snap.message() == null ? "" : " — " + snap.message();
+            System.out.printf("\r[%3d%%] %s%s%s",
+                    snap.percentComplete(), phase, msg, " ".repeat(20));
+            System.out.flush();
+        });
+        System.out.println();
+        if (result.status() != io.aeyer.anchor.protocol.ingest.IngestJobStatus.COMPLETED) {
+            return "Ingest " + result.status() + ": " + (result.error() == null ? "(no detail)" : result.error());
+        }
+        var r = result.result();
         return "Ingested " + (isLocal ? "(uploaded) " : "(server-path) ")
-                + response.title() + " (id=" + response.documentId()
-                + ", chapters=" + response.chapterCount()
-                + ", chunks=" + response.chunkCount() + ")";
+                + r.title() + " (id=" + r.documentId()
+                + ", chapters=" + r.chapterCount()
+                + ", chunks=" + r.chunkCount() + ")";
     }
 
     @ShellMethod(key = "list", value = "List ingested documents.")

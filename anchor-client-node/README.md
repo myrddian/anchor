@@ -25,9 +25,16 @@ const client = new AnchorClient({
   apiToken: process.env.ANCHOR_API_TOKEN,   // omit if the server has no token set
 });
 
-// Add a paper. Either way works:
-await client.ingest("/srv/papers/dawkins-extended-phenotype.epub");      // server-side path
-await client.ingestUpload("./papers/dawkins-extended-phenotype.epub");   // multipart upload
+// Add a paper. Both endpoints are async — return an IngestHandle.
+const handle = await client.ingestUpload("./papers/dawkins-extended-phenotype.epub");
+const result = await handle.awaitCompletion({
+  timeoutMs: 30 * 60 * 1000,
+  onProgress: (s) => console.log(`${s.percent_complete}% ${s.phase} — ${s.message ?? ""}`),
+});
+console.log(`Ingested ${result.result.title} as ${result.document_id}`);
+
+// Or hand the server a path it can read directly:
+await (await client.ingest("/srv/papers/...")).awaitCompletion();
 
 // Browse / search.
 for (const d of await client.listDocuments()) console.log(d.title);
@@ -75,8 +82,10 @@ The token rides every HTTP call **and** the SSE subscription used by
 | `client.listDocuments()` | `GET /documents` |
 | `client.use({ documentId })` / `use({ titleSubstring })` | client-side; titleSubstring does one resolution `GET` |
 | `client.searchDocuments(query, k)` | `GET /documents/search` |
-| `client.ingest(path)` | `POST /ingest` |
-| `client.ingestUpload(path)` | `POST /ingest/upload` |
+| `client.ingest(path)` → `IngestHandle` | `POST /ingest` (202) |
+| `client.ingestUpload(path)` → `IngestHandle` | `POST /ingest/upload` (202) |
+| `ingestHandle.snapshot()` / `status()` | `GET /ingest/jobs/{id}` |
+| `ingestHandle.awaitCompletion({ timeoutMs, onProgress })` | polls `GET /ingest/jobs/{id}` |
 | `doc.describe()` | `GET /documents/{id}` |
 | `doc.retrieve(query, k)` | `POST /retrieve` |
 | `doc.validate(chunkId, query)` | `POST /validate` |

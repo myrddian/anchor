@@ -152,11 +152,40 @@ fi
 # 4. Ingest -------------------------------------------------------------------
 echo "==> 4/5 ingesting ${PDF_PATH}"
 INGEST_BODY="$(jq -n --arg path "${PDF_PATH}" '{source_path:$path}')"
-INGEST_RESPONSE="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+INGEST_ACCEPTED="$(curl -fsS -X POST -H 'Content-Type: application/json' \
   --data "${INGEST_BODY}" "${BASE_URL}/ingest")"
-DOC_ID="$(echo "${INGEST_RESPONSE}" | jq -r '.document_id')"
+INGEST_JOB_ID="$(echo "${INGEST_ACCEPTED}" | jq -r '.job_id')"
+echo "  ingest_job_id=${INGEST_JOB_ID}; polling progress…"
+
+# Ingest is async since v0.3 — server returns 202 immediately and runs the
+# pipeline on the ingest pool. Poll /ingest/jobs/{id} until terminal,
+# rendering the latest phase + percent on each tick (one log line per
+# percent change so we don't spam on slow polls).
+LAST_PCT=-1
+for _ in $(seq 1 1800); do
+  INGEST_JOB="$(curl -fsS "${BASE_URL}/ingest/jobs/${INGEST_JOB_ID}")"
+  INGEST_STATUS="$(echo "${INGEST_JOB}" | jq -r '.status')"
+  PCT="$(echo "${INGEST_JOB}" | jq -r '.percent_complete // 0')"
+  PHASE="$(echo "${INGEST_JOB}" | jq -r '.phase // "?"')"
+  MSG="$(echo "${INGEST_JOB}" | jq -r '.message // ""')"
+  if [[ "${PCT}" != "${LAST_PCT}" ]]; then
+    printf "  [%3d%%] %s — %s\n" "${PCT}" "${PHASE}" "${MSG}"
+    LAST_PCT="${PCT}"
+  fi
+  if [[ "${INGEST_STATUS}" == "COMPLETED" || "${INGEST_STATUS}" == "FAILED" || "${INGEST_STATUS}" == "CANCELLED" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${INGEST_STATUS}" != "COMPLETED" ]]; then
+  echo "✗ ingest ended in ${INGEST_STATUS}:" >&2
+  echo "${INGEST_JOB}" | jq . >&2
+  exit 1
+fi
+DOC_ID="$(echo "${INGEST_JOB}" | jq -r '.document_id')"
 echo "  ✓ ingested document_id=${DOC_ID}"
-echo "${INGEST_RESPONSE}" | jq '{title, chapter_count, section_count, paragraph_count, chunk_count, token_usage}'
+echo "${INGEST_JOB}" | jq '.result | {title, chapter_count, section_count, paragraph_count, chunk_count, token_usage}'
 
 # 5. Ask ----------------------------------------------------------------------
 echo

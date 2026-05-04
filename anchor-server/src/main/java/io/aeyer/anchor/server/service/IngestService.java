@@ -1,5 +1,6 @@
 package io.aeyer.anchor.server.service;
 
+import io.aeyer.anchor.protocol.ingest.IngestPhase;
 import io.aeyer.anchor.server.domain.DocSummarySource;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChapter;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChunk;
@@ -97,19 +98,35 @@ public class IngestService {
     }
 
     public IngestResult ingest(String sourcePath) {
+        return ingest(sourcePath, IngestProgressReporter.NOOP);
+    }
+
+    /**
+     * Blocking entrypoint that submits via {@link WorkerPools#submitIngest}
+     * and waits for completion. Preserves the document-id dedup convergence
+     * (concurrent calls for the same content hash share a Future). Used by
+     * integration tests; the production async path goes through
+     * {@link #runOnCurrentThread} via the IngestJobRunner instead, since
+     * blocking on .get() inside an HTTP request thread is what we built
+     * the async story to avoid.
+     */
+    public IngestResult ingest(String sourcePath, IngestProgressReporter progress) {
         Path documentPath = Paths.get(sourcePath);
         if (!Files.isRegularFile(documentPath)) {
             throw new IngestException("Source path is not a readable file: " + sourcePath);
         }
 
+        progress.report(IngestPhase.EXTRACTING, PHASE_END_EXTRACT - 5, "Extracting text");
         ExtractedDocument extracted = parseDocument(documentPath);
         UUID documentId = stableDocumentId(extracted.contentHash());
+        progress.attachDocument(documentId, extracted.title());
+        progress.report(IngestPhase.EXTRACTING, PHASE_END_EXTRACT, "Extracted " + extracted.text().length() + " chars");
 
         // Reset the ledger so the snapshot we return covers only this run.
         ledger.snapshotAndReset();
 
         try {
-            return pools.submitIngest(documentId, () -> runIngest(documentId, sourcePath, extracted)).get();
+            return pools.submitIngest(documentId, () -> runIngest(documentId, sourcePath, extracted, progress)).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IngestException("Interrupted during ingest", e);
@@ -120,6 +137,43 @@ public class IngestService {
         }
     }
 
+    /**
+     * Run the full ingest pipeline on the calling thread. The async path
+     * (IngestJobRunner) calls this directly on the ingest pool — no
+     * {@code submitIngest} wrap, so no nested-pool deadlock when the
+     * orchestrator is itself an ingest-pool task. Trade-off: skips
+     * document-id dedup convergence; two concurrent ingests of the same
+     * file produce two jobs, both serialised on the size-1 ingest pool,
+     * second one cascade-deletes the first's rows. Acceptable for v0.
+     */
+    public IngestResult runOnCurrentThread(String sourcePath, IngestProgressReporter progress) {
+        Path documentPath = Paths.get(sourcePath);
+        if (!Files.isRegularFile(documentPath)) {
+            throw new IngestException("Source path is not a readable file: " + sourcePath);
+        }
+        progress.report(IngestPhase.EXTRACTING, PHASE_END_EXTRACT - 5, "Extracting text");
+        ExtractedDocument extracted = parseDocument(documentPath);
+        UUID documentId = stableDocumentId(extracted.contentHash());
+        progress.attachDocument(documentId, extracted.title());
+        progress.report(IngestPhase.EXTRACTING, PHASE_END_EXTRACT,
+                "Extracted " + extracted.text().length() + " chars");
+        ledger.snapshotAndReset();
+        return runIngest(documentId, sourcePath, extracted, progress);
+    }
+
+    // Phase budget — pre-allocated slices of the 0..100 percent. The summary
+    // cascade dominates wall time on a long book (Gemma is the bottleneck);
+    // weights are eyeballed from real ingests and refine in-phase by counting
+    // items processed.
+    private static final int PHASE_END_EXTRACT = 5;
+    private static final int PHASE_END_PARSE = 8;
+    private static final int PHASE_END_PARAGRAPHS = 60;
+    private static final int PHASE_END_SECTIONS = 75;
+    private static final int PHASE_END_CHAPTERS = 85;
+    private static final int PHASE_END_DOC_SUMMARY = 88;
+    private static final int PHASE_END_EMBEDDING = 97;
+    private static final int PHASE_END_PERSIST = 100;
+
     private ExtractedDocument parseDocument(Path documentPath) {
         try {
             return extractor.extract(documentPath);
@@ -128,7 +182,9 @@ public class IngestService {
         }
     }
 
-    private IngestResult runIngest(UUID documentId, String sourcePath, ExtractedDocument extracted) {
+    private IngestResult runIngest(UUID documentId, String sourcePath, ExtractedDocument extracted,
+                                   IngestProgressReporter progress) {
+        progress.report(IngestPhase.PARSING, PHASE_END_PARSE, "Parsing structure");
         ParsedDocument parsed = parser.parse(extracted);
 
         Map<UUID, String> paragraphSummaries = new HashMap<>();
@@ -157,14 +213,32 @@ public class IngestService {
             }
         }
 
-        // Paragraph summaries — only layer that sees raw text.
+        // Paragraph summaries — only layer that sees raw text. This is the
+        // longest phase by wall time, so report after every Nth paragraph
+        // (and always on the last) — finer granularity than per-phase
+        // bookends at the cost of a few more progress writes.
         List<ParsedParagraph> allParagraphs = new ArrayList<>(paragraphIds.keySet());
-        for (ParsedParagraph paragraph : allParagraphs) {
+        int totalParagraphs = allParagraphs.size();
+        progress.report(IngestPhase.SUMMARISING_PARAGRAPHS, PHASE_END_PARSE,
+                "Summarising " + totalParagraphs + " paragraphs");
+        int paragraphReportEvery = Math.max(1, totalParagraphs / 25);
+        for (int i = 0; i < totalParagraphs; i++) {
+            ParsedParagraph paragraph = allParagraphs.get(i);
             String text = paragraphRawText(paragraph);
             paragraphSummaries.put(paragraphIds.get(paragraph), summariser.summariseParagraph(text));
+            if ((i + 1) % paragraphReportEvery == 0 || i == totalParagraphs - 1) {
+                int pct = phasePercent(PHASE_END_PARSE, PHASE_END_PARAGRAPHS, i + 1, totalParagraphs);
+                progress.report(IngestPhase.SUMMARISING_PARAGRAPHS, pct,
+                        "Summarised " + (i + 1) + "/" + totalParagraphs + " paragraphs");
+            }
         }
 
         // Section summaries — see only paragraph summaries.
+        int totalSections = sectionIds.size();
+        progress.report(IngestPhase.SUMMARISING_SECTIONS, PHASE_END_PARAGRAPHS,
+                "Summarising " + totalSections + " sections");
+        int sectionsDone = 0;
+        int sectionReportEvery = Math.max(1, totalSections / 10);
         for (ParsedChapter chapter : parsed.chapters()) {
             for (ParsedSection section : chapter.sections()) {
                 List<String> belowSummaries = section.paragraphs().stream()
@@ -172,40 +246,61 @@ public class IngestService {
                         .toList();
                 sectionSummaries.put(sectionIds.get(section),
                         summariser.summariseSection(section.title(), belowSummaries));
+                sectionsDone++;
+                if (sectionsDone % sectionReportEvery == 0 || sectionsDone == totalSections) {
+                    int pct = phasePercent(PHASE_END_PARAGRAPHS, PHASE_END_SECTIONS, sectionsDone, totalSections);
+                    progress.report(IngestPhase.SUMMARISING_SECTIONS, pct,
+                            "Summarised " + sectionsDone + "/" + totalSections + " sections");
+                }
             }
         }
 
         // Chapter summaries — see only section summaries.
+        int totalChapters = parsed.chapters().size();
+        progress.report(IngestPhase.SUMMARISING_CHAPTERS, PHASE_END_SECTIONS,
+                "Summarising " + totalChapters + " chapters");
+        int chaptersDone = 0;
         for (ParsedChapter chapter : parsed.chapters()) {
             List<String> belowSummaries = chapter.sections().stream()
                     .map(s -> sectionSummaries.get(sectionIds.get(s)))
                     .toList();
             chapterSummaries.put(chapterIds.get(chapter),
                     summariser.summariseChapter(chapter.title(), belowSummaries));
+            chaptersDone++;
+            int pct = phasePercent(PHASE_END_SECTIONS, PHASE_END_CHAPTERS, chaptersDone, totalChapters);
+            progress.report(IngestPhase.SUMMARISING_CHAPTERS, pct,
+                    "Summarised " + chaptersDone + "/" + totalChapters + " chapters");
         }
 
         // Document summary — only chapter summaries. Author-abstract path is a v1
         // refinement; for v0 we always GENERATE since no abstract-quality check exists.
+        progress.report(IngestPhase.SUMMARISING_DOCUMENT, PHASE_END_CHAPTERS, "Summarising document");
         List<String> chapterSummaryList = parsed.chapters().stream()
                 .map(c -> chapterSummaries.get(chapterIds.get(c)))
                 .toList();
         String documentSummary = summariser.summariseDocument(parsed.title(), chapterSummaryList);
+        progress.report(IngestPhase.SUMMARISING_DOCUMENT, PHASE_END_DOC_SUMMARY, "Document summary done");
 
         // Embeddings — batched per paragraph to keep the embedding pool busy.
         // Embed the doc_summary alongside the chunks so /documents/search and
         // /validate/quick can rank by cosine on the summary directly without
         // a per-query LLM call.
         List<ParsedChunk> allChunks = new ArrayList<>(chunkIds.keySet());
+        progress.report(IngestPhase.EMBEDDING, PHASE_END_DOC_SUMMARY,
+                "Embedding " + allChunks.size() + " chunks");
         Map<ParsedChunk, Embedding> chunkEmbeddings = embedAllChunks(allChunks);
         float[] summaryEmbedding = embedSingle(documentSummary);
+        progress.report(IngestPhase.EMBEDDING, PHASE_END_EMBEDDING, "Embeddings done");
 
         TokenLedger.Snapshot tokens = ledger.snapshotAndReset();
 
+        progress.report(IngestPhase.PERSISTING, PHASE_END_EMBEDDING, "Persisting to database");
         Counts counts = transactionTemplate.execute(status ->
                 persistAll(documentId, sourcePath, parsed, documentSummary, summaryEmbedding,
                         chapterIds, sectionIds, paragraphIds, chunkIds,
                         chapterSummaries, sectionSummaries, paragraphSummaries,
                         chunkEmbeddings));
+        progress.report(IngestPhase.PERSISTING, PHASE_END_PERSIST, "Persisted");
 
         log.info("Ingested {} → {} chapters, {} sections, {} paragraphs, {} chunks ({} sum-in / {} sum-out tokens)",
                 sourcePath, counts.chapters, counts.sections, counts.paragraphs, counts.chunks,
@@ -307,6 +402,13 @@ public class IngestService {
             }
         }
         return new Counts(chapterCount, sectionCount, paragraphCount, chunkCount);
+    }
+
+    /** Linear interpolation inside a phase slice: maps (done/total) into [from, to]. */
+    private static int phasePercent(int from, int to, int done, int total) {
+        if (total <= 0) return to;
+        int span = to - from;
+        return from + (int) Math.round(span * (Math.min(done, total) / (double) total));
     }
 
     private String paragraphRawText(ParsedParagraph paragraph) {

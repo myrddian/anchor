@@ -1,9 +1,10 @@
 package io.aeyer.anchor.server.api;
 
-import io.aeyer.anchor.protocol.ingest.IngestResponse;
+import io.aeyer.anchor.protocol.ingest.IngestJobAcceptedResponse;
 import io.aeyer.anchor.server.apimapper.IngestApiMapper;
+import io.aeyer.anchor.server.jobs.IngestJob;
 import io.aeyer.anchor.server.service.IngestException;
-import io.aeyer.anchor.server.service.IngestService;
+import io.aeyer.anchor.server.service.IngestJobRunner;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,32 +23,27 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Browser-friendly ingest. The plain POST /ingest endpoint takes a
- * server-side path — fine for scripts and the shell, useless for the web UI
- * since the chemist has no filesystem access. This sibling endpoint accepts
- * a multipart file, saves it under {@code anchor.upload-dir}, then delegates
- * to the existing {@link IngestService} so the rest of the pipeline
- * (parse → summarise → embed → persist) is identical.
+ * Browser-friendly ingest. Saves the uploaded file to {@code anchor.upload-dir},
+ * mints an async ingest job, and returns 202 with the job id so the UI can
+ * poll progress without hanging on a multi-minute book ingest.
  *
  * Each upload lands in its own UUID directory so original filenames are
- * preserved (and collisions can't truncate or rename), but two uploads of
- * the same paper produce the same {@code sha256(bytes)} → same stable
- * document id → idempotent replace via the existing /ingest path. So no
- * dedup logic needed here.
+ * preserved. Two uploads of the same paper still produce the same content
+ * hash → same stable document id → idempotent replace inside the pipeline.
  */
 @RestController
 public class IngestUploadController {
 
     private static final Logger log = LoggerFactory.getLogger(IngestUploadController.class);
 
-    private final IngestService ingest;
+    private final IngestJobRunner runner;
     private final IngestApiMapper apiMapper;
     private final Path uploadRoot;
 
-    public IngestUploadController(IngestService ingest, IngestApiMapper apiMapper,
+    public IngestUploadController(IngestJobRunner runner, IngestApiMapper apiMapper,
                                   @Value("${anchor.upload-dir:#{systemProperties['user.home']}/.anchor/uploads}")
                                   String uploadDir) {
-        this.ingest = ingest;
+        this.runner = runner;
         this.apiMapper = apiMapper;
         this.uploadRoot = Paths.get(uploadDir).toAbsolutePath().normalize();
     }
@@ -59,7 +55,7 @@ public class IngestUploadController {
     }
 
     @PostMapping(value = "/ingest/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<IngestResponse> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<IngestJobAcceptedResponse> upload(@RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
@@ -72,8 +68,8 @@ public class IngestUploadController {
             throw new IngestException("Could not save upload: " + e.getMessage(), e);
         }
 
-        IngestService.IngestResult result = ingest.ingest(saved.toString());
-        return ResponseEntity.status(HttpStatus.CREATED).body(apiMapper.toResponse(result));
+        IngestJob job = runner.submit(saved.toString());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(apiMapper.toAccepted(job));
     }
 
     private Path saveToUploadDir(MultipartFile file) throws IOException {

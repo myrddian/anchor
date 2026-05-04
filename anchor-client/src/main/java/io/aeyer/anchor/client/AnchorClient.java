@@ -7,8 +7,8 @@ import io.aeyer.anchor.client.internal.HttpTransport;
 import io.aeyer.anchor.protocol.documents.DocumentListResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
+import io.aeyer.anchor.protocol.ingest.IngestJobAcceptedResponse;
 import io.aeyer.anchor.protocol.ingest.IngestRequest;
-import io.aeyer.anchor.protocol.ingest.IngestResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -64,22 +64,30 @@ public final class AnchorClient {
 
     /**
      * Server-side ingest: hand the server a path it can read from its own
-     * filesystem. Use this for automation / scripts on the same host. For a
-     * client that has the file but not server filesystem access, use
-     * {@link #ingestUpload(java.nio.file.Path)}.
+     * filesystem. Returns immediately with an {@link IngestHandle} — the
+     * pipeline (parse → summarise → embed → persist) takes minutes on a
+     * full book and runs on the server's ingest pool. Poll progress via
+     * {@link IngestHandle#snapshot()} or block via
+     * {@link IngestHandle#awaitCompletion(java.time.Duration)}.
      */
-    public IngestResponse ingest(String sourcePath) {
-        return transport.postJson("/ingest", new IngestRequest(sourcePath), IngestResponse.class);
+    public IngestHandle ingest(String sourcePath) {
+        IngestJobAcceptedResponse accepted = transport.postJson(
+                "/ingest", new IngestRequest(sourcePath), IngestJobAcceptedResponse.class);
+        return new IngestHandle(accepted.jobId(), transport);
     }
 
     /**
      * Upload a local document to the server via multipart, then ingest it.
      * PDF, EPUB, DOCX, RTF, HTML, plain text — the server dispatches to
-     * PDFBox or Tika based on file extension. Same idempotency (re-upload
-     * → same content hash → same stable document_id) as {@link #ingest(String)}.
+     * PDFBox or Tika based on file extension. Returns an {@link IngestHandle}
+     * for progress polling; same idempotency (re-upload → same content hash
+     * → same stable document_id) as {@link #ingest(String)}.
      */
-    public IngestResponse ingestUpload(java.nio.file.Path localFile) {
-        return transport.postFile("/ingest/upload", localFile, guessContentType(localFile), IngestResponse.class);
+    public IngestHandle ingestUpload(java.nio.file.Path localFile) {
+        IngestJobAcceptedResponse accepted = transport.postFile(
+                "/ingest/upload", localFile, guessContentType(localFile),
+                IngestJobAcceptedResponse.class);
+        return new IngestHandle(accepted.jobId(), transport);
     }
 
     private static String guessContentType(java.nio.file.Path file) {
