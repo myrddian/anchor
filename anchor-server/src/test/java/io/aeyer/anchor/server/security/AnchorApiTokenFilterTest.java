@@ -87,7 +87,8 @@ class AnchorApiTokenFilterTest {
         AnchorApiTokenFilter filter = new AnchorApiTokenFilter(TOKEN);
         for (String exempt : new String[]{
                 "/", "/index.html", "/anchor.css", "/anchor.js", "/favicon.ico",
-                "/actuator/health", "/actuator/info", "/actuator/info/foo"}) {
+                "/actuator/health", "/actuator/info", "/actuator/info/foo",
+                "/anchor/ui/config"}) {
             MockHttpServletRequest req = new MockHttpServletRequest("GET", exempt);
             MockHttpServletResponse res = new MockHttpServletResponse();
             Recording chain = recordingChain();

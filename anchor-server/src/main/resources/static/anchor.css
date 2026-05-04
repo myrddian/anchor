@@ -409,6 +409,94 @@ footer {
 footer a { color: var(--fg-muted); text-decoration: none; }
 footer a:hover { color: var(--accent); }
 
+/* ---- Token-prompt overlay --------------------------------------------- */
+
+#token-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.token-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 32px;
+  width: min(440px, 100%);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.token-card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.token-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+.token-hint code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+#token-input {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+#token-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+.token-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warn);
+}
+.token-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+#token-submit {
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 20px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+#token-submit:hover:not(:disabled) { filter: brightness(1.08); }
+#token-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Hide the rest of the page while the token modal is up — focus and a11y. */
+body.token-locked main,
+body.token-locked header,
+body.token-locked footer { filter: blur(2px); pointer-events: none; user-select: none; }
+
 .error-banner {
   margin: 12px 0 0;
   padding: 10px 14px;

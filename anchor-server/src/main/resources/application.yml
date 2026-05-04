@@ -26,6 +26,12 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  web:
+    resources:
+      # Lockstep with anchor.web-ui.enabled — turning off the UI 404s the
+      # static asset handler so /, /index.html, /anchor.js, /anchor.css don't
+      # resolve at all on API-only deployments.
+      add-mappings: ${ANCHOR_WEB_UI_ENABLED:true}
 
 server:
   port: ${ANCHOR_PORT:8090}
@@ -90,6 +96,12 @@ anchor:
   # the dev / single-host workflow open; set ANCHOR_API_TOKEN before exposing
   # the service beyond localhost. See SecurityConfig for exempt paths.
   api-token: ${ANCHOR_API_TOKEN:}
+  # Single-page browser UI. On by default for the dev / chemist demo workflow;
+  # set ANCHOR_WEB_UI_ENABLED=false on API-only deployments. When this is on AND
+  # api-token is set, the UI shows a token-prompt screen on load and attaches
+  # the bearer to every request including the deliberation stream.
+  web-ui:
+    enabled: ${ANCHOR_WEB_UI_ENABLED:true}
 
 # Ask deliberation defaults.
 ask:

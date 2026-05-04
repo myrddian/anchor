@@ -34,14 +34,17 @@ public class AnchorApiTokenFilter extends OncePerRequestFilter {
 
     /**
      * Paths that bypass the token check even when auth is enabled. The static
-     * UI is exempt because the chemist isn't going to type a Bearer header
-     * (the deployment expectation: serve the UI behind your own session auth,
-     * or skip exposing it externally and use SDKs over the token-gated API).
-     * /actuator/health is exempt because liveness probes can't carry tokens.
+     * UI assets and {@code /anchor/ui/config} are exempt because the browser
+     * can't carry a Bearer header on the initial GETs — the UI bootstraps,
+     * fetches the config, prompts the user for the token, and then attaches
+     * the bearer to every subsequent request (including the deliberation
+     * stream, which is fetch-based for that reason). /actuator/health is
+     * exempt so liveness probes don't need credentials.
      */
     private static final Set<String> EXEMPT_PATHS = Set.of(
             "/", "/index.html", "/anchor.css", "/anchor.js", "/favicon.ico",
-            "/actuator/health");
+            "/actuator/health",
+            "/anchor/ui/config");
     private static final String EXEMPT_PREFIX_ACTUATOR_INFO = "/actuator/info";
 
     private final String expectedToken;

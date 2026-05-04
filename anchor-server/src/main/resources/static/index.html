@@ -12,6 +12,18 @@
     <p class="tagline">Source-grounded chunk validation. Documents-as-databases.</p>
   </header>
 
+  <div id="token-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="token-prompt-title">
+    <form id="token-form" class="token-card">
+      <h2 id="token-prompt-title">API token required</h2>
+      <p class="token-hint">This Anchor server is configured with <code>ANCHOR_API_TOKEN</code>. Paste the bearer token to continue. It's stored in your browser tab only (sessionStorage) — closing the tab forgets it.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="Bearer token" required spellcheck="false">
+      <p id="token-error" class="token-error hidden"></p>
+      <div class="token-actions">
+        <button type="submit" id="token-submit">Connect</button>
+      </div>
+    </form>
+  </div>
+
   <main>
     <form id="upload-form">
       <label for="upload-file">Add a paper</label>

@@ -1,5 +1,7 @@
 // Anchor — minimal browser UI. Vanilla ES2020, no framework, no build step.
-// Talks to the same JSON / SSE endpoints the SDK and shell use.
+// Talks to the same JSON endpoints the SDK and shell use, plus the
+// deliberation stream over fetch+ReadableStream (instead of EventSource so
+// the Bearer header can ride the SSE handshake when ANCHOR_API_TOKEN is set).
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -20,13 +22,118 @@ const els = {
   synthesiser: $("synthesiser-content"),
   grounding: $("grounding-panel"),
   groundingContent: $("grounding-content"),
+  tokenOverlay: $("token-overlay"),
+  tokenForm: $("token-form"),
+  tokenInput: $("token-input"),
+  tokenError: $("token-error"),
+  tokenSubmit: $("token-submit"),
 };
 
-let activeStream = null;
+let activeStream = null;          // AbortController for the in-flight ask stream
+let serverRequiresAuth = false;   // set during boot from /anchor/ui/config
+
+// ---- Auth: sessionStorage-backed Bearer token --------------------------
+
+const TOKEN_KEY = "anchor.api-token";
+
+function getToken()      { return sessionStorage.getItem(TOKEN_KEY) || ""; }
+function setToken(t)     { sessionStorage.setItem(TOKEN_KEY, t); }
+function clearToken()    { sessionStorage.removeItem(TOKEN_KEY); }
+
+/**
+ * fetch wrapper that attaches `Authorization: Bearer <token>` when one is
+ * stored, and bounces back to the token prompt on 401 (clearing the bad
+ * token first so the user can paste a fresh one).
+ */
+async function authedFetch(url, opts = {}) {
+  const token = getToken();
+  const headers = new Headers(opts.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(url, { ...opts, headers });
+  if (res.status === 401 && serverRequiresAuth) {
+    clearToken();
+    showTokenPrompt("That token didn't work — paste a valid one.");
+    throw new Error("unauthorized");
+  }
+  return res;
+}
+
+function showTokenPrompt(errorMessage) {
+  if (errorMessage) {
+    els.tokenError.textContent = errorMessage;
+    els.tokenError.classList.remove("hidden");
+  } else {
+    els.tokenError.classList.add("hidden");
+  }
+  els.tokenOverlay.classList.remove("hidden");
+  document.body.classList.add("token-locked");
+  els.tokenInput.focus();
+}
+
+function hideTokenPrompt() {
+  els.tokenOverlay.classList.add("hidden");
+  document.body.classList.remove("token-locked");
+  els.tokenInput.value = "";
+  els.tokenError.classList.add("hidden");
+}
+
+els.tokenForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const candidate = els.tokenInput.value.trim();
+  if (!candidate) return;
+  els.tokenSubmit.disabled = true;
+  els.tokenError.classList.add("hidden");
+  // Probe by hitting a token-gated endpoint. /documents is cheap and the
+  // server responds 200 even with zero documents, so a 200 means the
+  // token's accepted; 401 means try again.
+  try {
+    const res = await fetch("/documents?limit=1&offset=0", {
+      headers: { Authorization: `Bearer ${candidate}` },
+    });
+    if (res.status === 401) {
+      els.tokenError.textContent = "Server rejected that token.";
+      els.tokenError.classList.remove("hidden");
+      return;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    setToken(candidate);
+    hideTokenPrompt();
+    await loadDocuments();
+  } catch (err) {
+    els.tokenError.textContent = `Couldn't verify token: ${err.message}`;
+    els.tokenError.classList.remove("hidden");
+  } finally {
+    els.tokenSubmit.disabled = false;
+  }
+});
+
+/**
+ * Boot: figure out whether the server requires auth, then either prompt for
+ * the token or jump straight to loading documents. /anchor/ui/config is
+ * exempt from the API-token filter so this works before the user has typed
+ * anything.
+ */
+async function bootstrap() {
+  try {
+    const res = await fetch("/anchor/ui/config");
+    if (res.ok) {
+      const cfg = await res.json();
+      serverRequiresAuth = !!cfg.auth_required;
+    }
+  } catch {
+    // Older server without the endpoint, or transient — assume no auth and
+    // let later requests reveal a 401 if we're wrong.
+  }
+  if (serverRequiresAuth && !getToken()) {
+    showTokenPrompt(null);
+    return;
+  }
+  await loadDocuments();
+}
 
 async function loadDocuments() {
   try {
-    const response = await fetch("/documents?limit=200&offset=0");
+    const response = await authedFetch("/documents?limit=200&offset=0");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
     populateDocumentDropdown(body.documents || [], { mode: "list" });
@@ -38,7 +145,7 @@ async function loadDocuments() {
 
 async function searchDocuments(query) {
   try {
-    const response = await fetch(`/documents/search?q=${encodeURIComponent(query)}&k=20`);
+    const response = await authedFetch(`/documents/search?q=${encodeURIComponent(query)}&k=20`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
     populateDocumentDropdown(body.hits || [], { mode: "search" });
@@ -138,7 +245,8 @@ function finalizePanel(panel, fullText) {
 
 async function startAsk(documentId, query) {
   if (activeStream) {
-    activeStream.close();
+    if (typeof activeStream.abort === "function") activeStream.abort();
+    else if (typeof activeStream.close === "function") activeStream.close();
     activeStream = null;
   }
   resetPanels();
@@ -147,7 +255,7 @@ async function startAsk(documentId, query) {
   setStatus("QUEUED");
   els.button.disabled = true;
 
-  const response = await fetch(`/documents/${documentId}/ask`, {
+  const response = await authedFetch(`/documents/${documentId}/ask`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
@@ -162,57 +270,122 @@ async function startAsk(documentId, query) {
   subscribe(body.job_id);
 }
 
-function subscribe(jobId) {
-  const source = new EventSource(`/jobs/${jobId}/stream`);
-  activeStream = source;
+/**
+ * Stream the deliberation events from /jobs/{id}/stream. We use fetch +
+ * ReadableStream instead of EventSource so the Authorization header can
+ * ride the request — EventSource is GET-only with no header support, which
+ * doesn't survive ANCHOR_API_TOKEN being set.
+ *
+ * Parses SSE manually: events are blocks separated by a blank line, with
+ * `event: <name>` and `data: <json>` lines. We don't need `id:` or
+ * reconnect support — the server emits a terminal `completed` / `failed`
+ * event then closes, and the polling fallback in fetchAndRenderGrounding
+ * covers the case where the stream drops mid-flight.
+ */
+async function subscribe(jobId) {
+  const controller = new AbortController();
+  activeStream = controller;
 
-  source.addEventListener("status", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.status) setStatus(data.status);
-  });
-
-  source.addEventListener("proposer_thought", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.token) appendToken(els.proposer, data.token);
-  });
-  source.addEventListener("proposer_complete", (e) => {
-    const data = JSON.parse(e.data);
-    finalizePanel(els.proposer, data.response);
-  });
-
-  source.addEventListener("critic_thought", () => {
-    // Critic output is JSON, not prose — render it on critic_complete.
-  });
-  source.addEventListener("critic_complete", (e) => {
-    const data = JSON.parse(e.data);
-    renderCriticComplete(data.response);
-  });
-
-  source.addEventListener("synthesiser_thought", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.token) appendToken(els.synthesiser, data.token);
-  });
-  source.addEventListener("synthesiser_complete", (e) => {
-    const data = JSON.parse(e.data);
-    // Server sends raw output here; the cleaner final response arrives on
-    // the `completed` event below (parsed by SynthesiserOutputParser).
-    finalizePanel(els.synthesiser, data.response);
-  });
-
-  source.addEventListener("completed", (e) => {
-    const data = JSON.parse(e.data);
-    setStatus("COMPLETED");
-    if (data.response) finalizePanel(els.synthesiser, data.response);
-    fetchAndRenderGrounding(jobId);
+  let response;
+  try {
+    response = await authedFetch(`/jobs/${jobId}/stream`, {
+      headers: { Accept: "text/event-stream" },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      showError(`Could not open deliberation stream: ${err.message}`);
+    }
     cleanupStream();
-  });
-
-  source.addEventListener("failed", (e) => {
-    const data = JSON.parse(e.data);
-    setStatus("FAILED");
-    showError(`Deliberation failed: ${data.error || "(no detail)"}`);
+    return;
+  }
+  if (!response.ok || !response.body) {
+    showError(`Stream open failed: HTTP ${response.status}`);
     cleanupStream();
-  });
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // Split off complete events (blank-line-terminated blocks).
+      let boundary;
+      while ((boundary = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, boundary);
+        buf = buf.slice(boundary + 2);
+        const evt = parseSseBlock(block);
+        if (evt) handleStreamEvent(jobId, evt.event, evt.data);
+      }
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      showError(`Stream read failed: ${err.message}`);
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+    cleanupStream();
+  }
+}
+
+function parseSseBlock(block) {
+  let event = "message";
+  const dataLines = [];
+  for (const line of block.split("\n")) {
+    if (!line || line.startsWith(":")) continue; // comment / heartbeat
+    const colon = line.indexOf(":");
+    const field = colon < 0 ? line : line.slice(0, colon);
+    const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
+    if (field === "event") event = value;
+    else if (field === "data") dataLines.push(value);
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return null;  // malformed; snapshot endpoint is the source of truth
+  }
+}
+
+function handleStreamEvent(jobId, type, data) {
+  switch (type) {
+    case "status":
+      if (data.status) setStatus(data.status);
+      break;
+    case "proposer_thought":
+      if (data.token) appendToken(els.proposer, data.token);
+      break;
+    case "proposer_complete":
+      finalizePanel(els.proposer, data.response);
+      break;
+    case "critic_thought":
+      // Critic output is JSON, not prose — render it on critic_complete.
+      break;
+    case "critic_complete":
+      renderCriticComplete(data.response);
+      break;
+    case "synthesiser_thought":
+      if (data.token) appendToken(els.synthesiser, data.token);
+      break;
+    case "synthesiser_complete":
+      // Server sends raw output here; the cleaner final response arrives on
+      // the `completed` event below (parsed by SynthesiserOutputParser).
+      finalizePanel(els.synthesiser, data.response);
+      break;
+    case "completed":
+      setStatus("COMPLETED");
+      if (data.response) finalizePanel(els.synthesiser, data.response);
+      fetchAndRenderGrounding(jobId);
+      break;
+    case "failed":
+      setStatus("FAILED");
+      showError(`Deliberation failed: ${data.error || "(no detail)"}`);
+      break;
+  }
 }
 
 function renderCriticComplete(rawJsonOrText) {
@@ -247,7 +420,7 @@ function renderCriticComplete(rawJsonOrText) {
 
 async function fetchAndRenderGrounding(jobId) {
   try {
-    const response = await fetch(`/jobs/${jobId}`);
+    const response = await authedFetch(`/jobs/${jobId}`);
     if (!response.ok) return;
     const job = await response.json();
     if (job.final_response) finalizePanel(els.synthesiser, job.final_response);
@@ -260,7 +433,10 @@ async function fetchAndRenderGrounding(jobId) {
 
 function cleanupStream() {
   if (activeStream) {
-    activeStream.close();
+    // AbortController in the new fetch-based path; .abort() unblocks the
+    // pending read() and lets the consumer fall through the finally.
+    if (typeof activeStream.abort === "function") activeStream.abort();
+    else if (typeof activeStream.close === "function") activeStream.close();
     activeStream = null;
   }
   els.button.disabled = false;
@@ -306,7 +482,7 @@ async function uploadAndIngest(file) {
   try {
     // Submit returns 202 with a job_id — server runs the multi-minute
     // pipeline on the ingest pool while we poll for progress here.
-    const response = await fetch("/ingest/upload", { method: "POST", body });
+    const response = await authedFetch("/ingest/upload", { method: "POST", body });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
@@ -347,7 +523,7 @@ async function uploadAndIngest(file) {
  */
 async function pollIngestJob(jobId) {
   while (true) {
-    const response = await fetch(`/ingest/jobs/${jobId}`);
+    const response = await authedFetch(`/ingest/jobs/${jobId}`);
     if (!response.ok) {
       throw new Error(`progress fetch HTTP ${response.status}`);
     }
@@ -381,4 +557,4 @@ els.documentSearch.addEventListener("input", () => {
   }, 250);
 });
 
-loadDocuments();
+bootstrap();
