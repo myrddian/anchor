@@ -1,5 +1,7 @@
 # Anchor
 
+[![CI](https://github.com/myrddian/anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/myrddian/anchor/actions/workflows/ci.yml)
+
 > **Source-grounded chunk validation as a primitive.** v0 in progress — see
 > [SPEC.md](SPEC.md) for the full design.
 
@@ -34,6 +36,12 @@ below them.
 docker compose up -d postgres                    # pgvector on :5433
 cp .env.example .env                             # set LLM_BASE_URL
 ./gradlew :anchor-server:bootRun                 # boots on :8090
+```
+
+Or run the whole stack in containers — server + postgres together:
+
+```bash
+docker compose --profile app up --build
 ```
 
 Then drive the API directly:

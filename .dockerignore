@@ -1,0 +1,47 @@
+# Keep the build context small — Docker uploads everything not listed here
+# to the daemon before COPY-ing what the Dockerfile actually wants.
+
+# Build outputs
+**/build/
+**/.gradle/
+**/out/
+**/target/
+
+# IDE / editor cruft
+.idea/
+.vscode/
+*.iml
+
+# Local dev state
+.env
+.env.local
+test-corpus/
+*.log
+*.pid
+
+# Tests aren't needed for the runtime image
+**/src/test/
+
+# Non-server modules — the Dockerfile builds anchor-server only, but the
+# Java sibling modules (anchor-client, anchor-shell) need their build files
+# present for settings.gradle.kts to evaluate the project graph. Exclude the
+# source, keep the build descriptors.
+anchor-shell/src/
+anchor-shell/build/
+anchor-client/src/
+anchor-client/build/
+anchor-client-python/
+anchor-client-node/
+
+# Git, CI, docs
+.git/
+.github/
+docs/
+*.md
+LICENCE
+NOTICE
+
+# Docker meta — would otherwise be uploaded inside itself.
+Dockerfile
+.dockerignore
+docker-compose.yml

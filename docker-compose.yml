@@ -18,5 +18,46 @@ services:
       timeout: 3s
       retries: 10
 
+  # Optional: bring up the Anchor server itself in a container next to the
+  # database. `docker compose up postgres` keeps the historical "just the
+  # database" workflow for `./gradlew :anchor-server:bootRun` against host
+  # JVM. `docker compose --profile app up --build` builds and runs the full
+  # stack together.
+  anchor-server:
+    build: .
+    image: anchor-server:dev
+    container_name: anchor-server
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ANCHOR_DB_URL: jdbc:postgresql://postgres:5432/anchor
+      ANCHOR_DB_USER: anchor
+      ANCHOR_DB_PASSWORD: anchor
+      # Inference defaults assume LM Studio on the host, reached via the
+      # Docker Desktop / Podman host alias. Override with -e LLM_BASE_URL=...
+      # to point at a real OpenAI-compatible endpoint anywhere on the LAN.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-gemma-3-4b-it}
+      LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-nomic-embed-text-v1.5}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      ANCHOR_API_TOKEN: ${ANCHOR_API_TOKEN:-}
+      ANCHOR_WEB_UI_ENABLED: ${ANCHOR_WEB_UI_ENABLED:-true}
+      ANCHOR_OPENAPI_ENABLED: ${ANCHOR_OPENAPI_ENABLED:-true}
+    ports:
+      - "8090:8090"
+    volumes:
+      # Persist uploads between container restarts so re-ingest
+      # idempotency holds across `docker compose down`.
+      - anchor-uploads:/app/uploads
+    extra_hosts:
+      # Linux Docker doesn't auto-resolve host.docker.internal; this maps it
+      # explicitly so LM Studio on the host is reachable the same way it is
+      # on Mac/Windows.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   anchor-postgres-data:
+  anchor-uploads:

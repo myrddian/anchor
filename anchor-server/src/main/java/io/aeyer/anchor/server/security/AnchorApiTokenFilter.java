@@ -57,7 +57,8 @@ public class AnchorApiTokenFilter extends OncePerRequestFilter {
      */
     private static final java.util.List<String> EXEMPT_PREFIXES = java.util.List.of(
             "/v3/api-docs",
-            "/swagger-ui");
+            "/swagger-ui",
+            "/swagger-ui.html");
 
     private final String expectedToken;
     private final byte[] expectedBytes;

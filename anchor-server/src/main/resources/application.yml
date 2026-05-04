@@ -111,13 +111,13 @@ anchor:
 # OpenAPI / Swagger UI. Enabled in v0 because the spec is the contract — useful
 # for SDK consumers, integrators, and the curl-the-API audience. Set
 # ANCHOR_OPENAPI_ENABLED=false to drop both endpoints on hardened deployments.
+# Paths are the springdoc defaults: spec at /v3/api-docs, UI at
+# /swagger-ui/index.html (also reachable via the /swagger-ui.html alias).
 springdoc:
   api-docs:
     enabled: ${ANCHOR_OPENAPI_ENABLED:true}
-    path: /v3/api-docs
   swagger-ui:
     enabled: ${ANCHOR_OPENAPI_ENABLED:true}
-    path: /swagger-ui/index.html
     operations-sorter: method
     tags-sorter: alpha
     display-request-duration: true
