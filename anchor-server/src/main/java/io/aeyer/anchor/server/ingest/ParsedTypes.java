@@ -11,7 +11,15 @@ import java.util.List;
 public final class ParsedTypes {
     private ParsedTypes() {}
 
-    public record ParsedDocument(String title, String sourcePathHash, List<ParsedChapter> chapters) {}
+    public record ParsedDocument(
+            String title,
+            String sourcePathHash,
+            /** What the source itself calls its top-level groupings — see
+             *  {@link ChapterDetector.Vocabulary}. Stored on the document
+             *  so the deliberation prompts can avoid mislabeling academic-
+             *  paper sections as "chapters". */
+            ChapterDetector.Vocabulary topLevelVocabulary,
+            List<ParsedChapter> chapters) {}
 
     public record ParsedChapter(
             String title,

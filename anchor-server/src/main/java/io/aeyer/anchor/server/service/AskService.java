@@ -7,6 +7,7 @@ import io.aeyer.anchor.protocol.ask.EvidenceAccess;
 import io.aeyer.anchor.protocol.ask.JobStatus;
 import io.aeyer.anchor.protocol.sse.JobEventType;
 import io.aeyer.anchor.server.domain.DocumentContext;
+import io.aeyer.anchor.server.ingest.ChapterDetector;
 import io.aeyer.anchor.server.jobs.AskJob;
 import io.aeyer.anchor.server.jobs.JobStore;
 import io.aeyer.anchor.server.llm.ChatCompletion;
@@ -262,7 +263,7 @@ public class AskService {
     private AgentEnvelope runProposer(UUID jobId, DocumentContext ctx,
                                       List<ChunkSearchHit> topChunks, String query) {
         Instant start = Instant.now();
-        String prompt = proposerTpl
+        String prompt = applyVocabulary(proposerTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
@@ -282,7 +283,7 @@ public class AskService {
 
     private AgentEnvelope runCritic(DocumentContext ctx, String query, String proposerResponse) {
         Instant start = Instant.now();
-        String prompt = criticTpl
+        String prompt = applyVocabulary(criticTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
@@ -306,7 +307,7 @@ public class AskService {
         String challengesFormatted = challenges.isEmpty()
                 ? "(no challenges raised)"
                 : formatNumberedList(challenges);
-        String prompt = synthesiserTpl
+        String prompt = applyVocabulary(synthesiserTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
@@ -457,6 +458,45 @@ public class AskService {
 
     private Map<String, Object> parseSynthesiserGrounding(String raw) {
         return synthParser.extractGrounding(raw);
+    }
+
+    // ---- Vocabulary substitution ----
+
+    /**
+     * Replace structural-vocabulary placeholders in the prompt template
+     * with the source document's own terminology, before any other
+     * substitution. Books with `^Chapter N` headings get "chapter" /
+     * "section"; academic papers with `^N. Title` headings get "section"
+     * / "subsection". Default is "section" (academic-paper case).
+     *
+     * Without this, prompts always said "YOUR CHAPTERS" — a paper that
+     * uses "Section" throughout would have the model dutifully cite our
+     * label as "chapter," which contradicts the document's self-references
+     * and reads as fabrication to a reader.
+     *
+     * The label is read from {@code Document.metadata["top_level_label"]},
+     * stamped at ingest time by {@link io.aeyer.anchor.server.service.IngestService}.
+     */
+    private static String applyVocabulary(String template, DocumentContext ctx) {
+        Object stored = ctx.document().metadata() == null
+                ? null
+                : ctx.document().metadata().get("top_level_label");
+        ChapterDetector.Vocabulary vocab;
+        try {
+            vocab = stored instanceof String s
+                    ? ChapterDetector.Vocabulary.valueOf(s.toUpperCase(java.util.Locale.ROOT))
+                    : ChapterDetector.Vocabulary.SECTION;
+        } catch (IllegalArgumentException e) {
+            vocab = ChapterDetector.Vocabulary.SECTION;
+        }
+        return template
+                .replace("{structural_top}",            vocab.singular())
+                .replace("{structural_top_plural}",     vocab.plural())
+                .replace("{Structural_Top}",            vocab.singularCap())
+                .replace("{Structural_Top_Plural}",     vocab.pluralCap())
+                .replace("{structural_mid}",            vocab.midLevel())
+                .replace("{structural_mid_plural}",     vocab.midLevelPlural())
+                .replace("{Structural_Mid_Plural}",     vocab.midLevelPluralCap());
     }
 
     // ---- Evidence formatting ----

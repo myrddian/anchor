@@ -349,7 +349,13 @@ public class IngestService {
         docDbo.setDocSummary(documentSummary);
         docDbo.setDocSummarySource(DocSummarySource.GENERATED);
         docDbo.setIngestedAt(Instant.now());
-        docDbo.setMetadata(Map.of("content_hash", parsed.sourcePathHash()));
+        // top_level_label feeds the deliberation prompts so the model uses
+        // the source's own terminology ("section" / "chapter" / "part")
+        // instead of always saying "chapter". Stored in the existing JSONB
+        // metadata blob — no migration needed.
+        docDbo.setMetadata(Map.of(
+                "content_hash", parsed.sourcePathHash(),
+                "top_level_label", parsed.topLevelVocabulary().singular()));
         if (summaryEmbedding != null && summaryEmbedding.length > 0) {
             docDbo.setSummaryEmbedding(summaryEmbedding);
         }

@@ -115,6 +115,62 @@ class ChapterDetectorTest {
     }
 
     @Test
+    void vocabulary_detected_as_chapter_for_book_style_text() {
+        String text = """
+                Chapter 1 Foundations
+                content
+                Chapter 2 Methods
+                content
+                Chapter 3 Results
+                content
+                """;
+        assertThat(detector.detectVocabulary(text))
+                .isEqualTo(ChapterDetector.Vocabulary.CHAPTER);
+    }
+
+    @Test
+    void vocabulary_detected_as_section_for_academic_paper_style() {
+        // Mirrors what arxiv:1903.05495 looks like — numbered top-level
+        // headings, no 'Chapter' anywhere. The fix this test pins:
+        // detector should report SECTION so the prompt says
+        // "YOUR SECTIONS" rather than "YOUR CHAPTERS".
+        String text = """
+                1. Introduction
+                content
+                2. Basics and examples
+                content
+                3. Main results
+                content
+                4. Concluding remarks
+                content
+                """;
+        assertThat(detector.detectVocabulary(text))
+                .isEqualTo(ChapterDetector.Vocabulary.SECTION);
+        assertThat(ChapterDetector.Vocabulary.SECTION.midLevel()).isEqualTo("subsection");
+    }
+
+    @Test
+    void vocabulary_detected_as_part_for_anthology_style() {
+        String text = """
+                Part I Setup
+                content
+                Part II Execution
+                content
+                Part III Analysis
+                content
+                """;
+        assertThat(detector.detectVocabulary(text))
+                .isEqualTo(ChapterDetector.Vocabulary.PART);
+    }
+
+    @Test
+    void vocabulary_defaults_to_section_when_text_has_no_clear_structure() {
+        assertThat(detector.detectVocabulary("just prose with no headings whatsoever"))
+                .isEqualTo(ChapterDetector.Vocabulary.SECTION);
+        assertThat(detector.detectVocabulary("")).isEqualTo(ChapterDetector.Vocabulary.SECTION);
+    }
+
+    @Test
     void excluded_titles_in_pdf_outline_are_dropped_too() {
         // The other entry path — PDF outline rather than regex.
         String text = """

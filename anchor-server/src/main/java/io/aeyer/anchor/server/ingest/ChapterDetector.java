@@ -47,6 +47,68 @@ public class ChapterDetector {
             "table of contents", "contents", "index",
             "abstract");
 
+    /**
+     * What the source document calls its top-level groupings. Used by the
+     * deliberation prompts (see {@code AskService}) so we don't tell the
+     * model "YOUR CHAPTERS" when the paper itself uses "Section". Mismatch
+     * was the root cause of deliberation outputs that read like
+     * fabrication: the model was correctly citing our internal labels but
+     * those labels contradicted the document's own self-references.
+     */
+    public enum Vocabulary {
+        CHAPTER, SECTION, PART;
+
+        public String singular()    { return name().toLowerCase(Locale.ROOT); }
+        public String plural()      { return singular() + "s"; }
+        public String singularCap() { return name().charAt(0) + singular().substring(1); }
+        public String pluralCap()   { return singularCap() + "s"; }
+
+        /**
+         * What the document calls the level *below* its top-level groupings.
+         * Books: chapter→section. Academic papers: section→subsection (so the
+         * prompt can distinguish "section 2" from "subsection 2.3").
+         * Parts: section, since we don't model the part→chapter→section
+         * hierarchy fully — the part-document's middle level collapses to
+         * 'section' in our two-level-only schema.
+         */
+        public String midLevel() {
+            return switch (this) {
+                case CHAPTER, PART -> "section";
+                case SECTION -> "subsection";
+            };
+        }
+        public String midLevelPlural()    { return midLevel() + "s"; }
+        public String midLevelPluralCap() {
+            return Character.toUpperCase(midLevel().charAt(0)) + midLevelPlural().substring(1);
+        }
+    }
+
+    /**
+     * Best-effort detection of the source's preferred terminology. Counts
+     * heading-shaped lines that look like {@code Chapter N}, {@code Part N},
+     * or {@code N. Title} (academic-paper section style). The format
+     * with the most matches wins; "section" is the default because untagged
+     * academic papers dominate Anchor's corpus.
+     */
+    public Vocabulary detectVocabulary(String fullText) {
+        if (fullText == null || fullText.isBlank()) return Vocabulary.SECTION;
+        String[] lines = fullText.split("\\R", -1);
+        int chapterHits = 0, partHits = 0, sectionHits = 0;
+        Pattern numbered = Pattern.compile("^\\s*\\d+\\.\\s+[A-Z].{0,80}$");
+        for (String line : lines) {
+            if (CHAPTER_REGEX.matcher(line).matches()) chapterHits++;
+            else if (PART_REGEX.matcher(line).matches()) partHits++;
+            else if (numbered.matcher(line).matches()) sectionHits++;
+        }
+        if (chapterHits >= 2 && chapterHits >= partHits && chapterHits >= sectionHits) {
+            return Vocabulary.CHAPTER;
+        }
+        if (partHits >= 2 && partHits > sectionHits) {
+            return Vocabulary.PART;
+        }
+        return Vocabulary.SECTION;
+    }
+
     public List<DetectedChapter> detect(String fullText, List<String> pdfOutlineTopLevel) {
         if (fullText == null || fullText.isBlank()) return List.of();
         String[] lines = fullText.split("\\R", -1);

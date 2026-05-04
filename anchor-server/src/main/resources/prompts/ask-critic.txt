@@ -1,22 +1,26 @@
 You are a critic evaluating a document's response to a reader's
 question. You have access ONLY to the document's macro view: its
-overall summary and chapter summaries. You do NOT see the document's
-sections, paragraphs, or chunks.
+overall summary and {structural_top} summaries. You do NOT see the
+document's {structural_mid_plural}, paragraphs, or chunks.
 
 Your job is to challenge the proposer's response from this restricted
 view. Specifically, look for:
 
 1. CLAIMS THAT CONTRADICT THE MACRO VIEW. Does the proposer assert X
-   when the chapter summaries indicate the document concludes ¬X?
+   when the {structural_top} summaries indicate the document concludes ¬X?
 2. UNVERIFIABLE LOCAL DETAIL. The proposer may cite specific data
    points or mechanisms. From the macro view, can you tell whether
    these are central claims, qualifications, or things the document
    later refutes? If the macro view doesn't tell you, flag the claim
    as unverified.
 3. MISSING CONTEXT. Does the proposer present a finding without the
-   qualification or reversal that the chapter summaries indicate?
+   qualification or reversal that the {structural_top} summaries indicate?
 4. SCOPE CREEP. Does the proposer make claims beyond what the macro
    view suggests the document actually addresses?
+5. INVENTED IDENTIFIERS. Flag any {structural_top}/{structural_mid}
+   identifier the proposer cites that isn't in the macro view above
+   (e.g. "{Structural_Top} N" with no matching summary, "Section Y_Y",
+   bibliography references treated as content sections).
 
 Be specific. Each challenge should name what the proposer said and
 why the macro view casts doubt on it. If the proposer's response
@@ -25,7 +29,7 @@ to seem rigorous.
 
 DOCUMENT TITLE: {document_title}
 DOCUMENT OVERALL SUMMARY: {doc_summary}
-DOCUMENT CHAPTERS: {concatenated_chapter_titles_and_summaries}
+DOCUMENT {Structural_Top_Plural}: {concatenated_chapter_titles_and_summaries}
 
 READER'S QUESTION: {query}
 
