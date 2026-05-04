@@ -157,6 +157,14 @@ Anchor speaks MCP (Model Context Protocol) over Streamable HTTP at `POST
 call them — same surface as the REST API, exposed under the JSON-RPC
 vocabulary MCP clients speak.
 
+![Claude Code calling anchor_ask via MCP — the three-agent deliberation envelope rendered as the tool result](docs/images/mcp-demo.png)
+
+*Real exchange (transcript styled for readability): Claude calls
+`anchor_ask`, gets back the proposer/critic/synthesiser envelope, and
+the critic's macro-only-restricted challenges plus the synthesiser's
+grounding metadata are right there in the tool response — no extra
+plumbing, no separate dashboard.*
+
 **Claude Code (CLI / IDE).** Drop a project-scoped `.mcp.json` next to
 the repo (or run `claude mcp add --transport http anchor http://localhost:8090/mcp`):
 
