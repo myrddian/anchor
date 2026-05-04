@@ -5,6 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.aeyer.anchor.client.exceptions.AnchorClientException;
 import io.aeyer.anchor.client.internal.HttpTransport;
 import io.aeyer.anchor.protocol.documents.DocumentListResponse;
+import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
 import io.aeyer.anchor.protocol.ingest.IngestRequest;
 import io.aeyer.anchor.protocol.ingest.IngestResponse;
@@ -78,6 +79,17 @@ public final class AnchorClient {
      */
     public IngestResponse ingestUpload(java.nio.file.Path localFile) {
         return transport.postFile("/ingest/upload", localFile, "application/pdf", IngestResponse.class);
+    }
+
+    /**
+     * Semantic search across documents — ranks by cosine of the query
+     * embedding against each doc's stored summary embedding. Topical
+     * relevance, not stance — for stance use
+     * {@link AnchorDocument#quickValidate(String)} on a single document.
+     */
+    public DocumentSearchResponse searchDocuments(String query, int k) {
+        String path = "/documents/search?q=" + urlEncode(query) + "&k=" + Math.max(1, k);
+        return transport.get(path, DocumentSearchResponse.class);
     }
 
     HttpTransport transport() { return transport; }

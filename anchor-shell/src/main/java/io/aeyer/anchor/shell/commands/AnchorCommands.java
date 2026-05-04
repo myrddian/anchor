@@ -5,10 +5,13 @@ import io.aeyer.anchor.client.AnchorDocument;
 import io.aeyer.anchor.client.AskHandle;
 import io.aeyer.anchor.protocol.ask.AskJobResponse;
 import io.aeyer.anchor.protocol.documents.DocumentDetailResponse;
+import io.aeyer.anchor.protocol.documents.DocumentSearchHit;
+import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
 import io.aeyer.anchor.protocol.ingest.IngestResponse;
 import io.aeyer.anchor.protocol.retrieve.RetrieveResponse;
 import io.aeyer.anchor.protocol.validate.AlternativeChunk;
+import io.aeyer.anchor.protocol.validate.ValidateQuickResponse;
 import io.aeyer.anchor.protocol.validate.ValidateResponse;
 import io.aeyer.anchor.shell.ShellState;
 import java.time.Duration;
@@ -60,6 +63,23 @@ public class AnchorCommands {
                     .append(d.title())
                     .append("  [").append(d.chapterCount()).append(" chapters, ")
                     .append(d.chunkCount()).append(" chunks]\n");
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    @ShellMethod(key = "search",
+            value = "Semantic search across documents — ranks by query-vs-summary cosine.")
+    public String search(@ShellOption(help = "Topic / claim to search for") String query,
+                         @ShellOption(value = {"--k"}, defaultValue = "10") int k) {
+        DocumentSearchResponse response = client.searchDocuments(query, k);
+        if (response.hits() == null || response.hits().isEmpty()) {
+            return "(no matches — try a broader query, or `list` to see everything)";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (DocumentSearchHit hit : response.hits()) {
+            sb.append(String.format("%.3f  ", hit.score()))
+                    .append(hit.documentId()).append("  ")
+                    .append(hit.title()).append('\n');
         }
         return sb.toString().stripTrailing();
     }
@@ -134,6 +154,21 @@ public class AnchorCommands {
             }
         }
         return sb.toString().stripTrailing();
+    }
+
+    @ShellMethod(key = "quick",
+            value = "Vector-only stance check against the bound document. No LLM call. Heuristic.")
+    @ShellMethodAvailability("requireDocumentBound")
+    public String quick(@ShellOption(help = "Claim to score") String query) {
+        ValidateQuickResponse response = state.bound().quickValidate(query);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Topical:  %+.3f   (cosine of query vs doc-summary)%n",
+                response.topicalRelevance()));
+        sb.append(String.format("Stance:   %+.3f   (positive = doc agrees, negative = disagrees)%n",
+                response.stanceScore()));
+        sb.append("Mode:     ").append(response.mode())
+                .append("   (no deliberation; use `ask` for the full reasoning)");
+        return sb.toString();
     }
 
     @ShellMethod(key = "ask", value = "Ask a question via three-agent deliberation.")

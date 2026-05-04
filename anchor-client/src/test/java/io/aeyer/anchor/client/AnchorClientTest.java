@@ -227,6 +227,45 @@ class AnchorClientTest {
     }
 
     @org.junit.jupiter.api.Test
+    void search_documents_hits_search_endpoint_with_query_params() throws Exception {
+        UUID docId = UUID.randomUUID();
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"query":"catalysts","k":5,"hits":[
+                          {"document_id":"%s","title":"Selective Catalyst Paper","source_path":"/x",
+                           "doc_summary":"…","ingested_at":"2026-05-04T00:00:00Z","score":0.91}
+                        ]}
+                        """.formatted(docId)));
+
+        var response = client.searchDocuments("catalysts", 5);
+
+        assertEquals("catalysts", response.query());
+        assertEquals(1, response.hits().size());
+        assertEquals(docId, response.hits().get(0).documentId());
+        RecordedRequest req = server.takeRequest();
+        assertEquals("/documents/search?q=catalysts&k=5", req.getPath());
+    }
+
+    @org.junit.jupiter.api.Test
+    void quick_validate_posts_to_validate_quick_endpoint() throws Exception {
+        UUID docId = UUID.randomUUID();
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"document_id":"%s","query":"is X selective?",
+                         "topical_relevance":0.78,"stance_score":0.42,"mode":"vector_only"}
+                        """.formatted(docId)));
+
+        var response = client.use(docId).quickValidate("is X selective?");
+
+        assertEquals(docId, response.documentId());
+        assertEquals("vector_only", response.mode());
+        RecordedRequest req = server.takeRequest();
+        assertEquals("/validate/quick", req.getPath());
+    }
+
+    @org.junit.jupiter.api.Test
     void ingest_upload_posts_multipart_form_with_file_field(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
         UUID docId = UUID.randomUUID();
         server.enqueue(new MockResponse()
