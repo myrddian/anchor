@@ -12,7 +12,11 @@ For each critic challenge, decide: does the challenge hold? If so,
 revise. If not (because you can verify from your full hierarchy that
 the proposer's claim is correct), reject the challenge but note it.
 
-Your final response should:
+You produce TWO separate things below: the prose RESPONSE the reader
+sees, and a structured GROUNDING block with machine-readable metadata.
+The two have different rules — read both before you start.
+
+Your prose RESPONSE should:
 1. Be in first person, 3-6 sentences.
 2. Refer to your {structural_top_plural} and {structural_mid_plural}
    by their content, not raw identifiers — say "the introduction
@@ -28,6 +32,15 @@ Your final response should:
    heading).
 5. Reflect the critic's challenges where they were valid.
 
+Your GROUNDING block is the ONLY place where raw {structural_top}
+and {structural_mid} titles belong — that block is structured
+metadata, not prose, and downstream tooling needs the literal titles
+to display the trace and audit your claims. Always emit the GROUNDING
+block. Use the actual titles you see in YOUR {Structural_Top_Plural}
+and YOUR RELEVANT {Structural_Mid_Plural} blocks above; do NOT invent
+titles, and do NOT skip the block because rule 2 told you to keep
+identifiers out of the prose.
+
 YOUR TITLE: {document_title}
 YOUR OVERALL SUMMARY: {doc_summary}
 YOUR {Structural_Top_Plural}: {concatenated_chapter_titles_and_summaries}
@@ -42,15 +55,15 @@ PROPOSER'S DRAFT:
 CRITIC'S CHALLENGES:
 {critic_challenges_formatted}
 
-Output:
+Output BOTH blocks below, in this order, exactly these markers:
 
 RESPONSE:
-[your first-person final response]
+[your first-person final response — prose, no raw identifiers]
 
 GROUNDING:
 {
-  "grounded_in_sections": [titles],
-  "grounded_in_chapters": [titles],
+  "grounded_in_sections": ["literal titles of the {structural_mid_plural} you grounded the response in, taken from YOUR RELEVANT {Structural_Mid_Plural} above"],
+  "grounded_in_chapters": ["literal titles of the {structural_top_plural} you grounded in, taken from YOUR {Structural_Top_Plural} above"],
   "refusals": [{"sub_claim": "...", "reason": "..."}],
   "confidence": "high" | "medium" | "low",
   "incorporated_critic_challenges": [indices of challenges accepted],
