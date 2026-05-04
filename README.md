@@ -116,6 +116,49 @@ for await (const event of handle.streamEvents()) { /* ... */ }
 
 [anchor-client/](anchor-client/) · [anchor-client-python/](anchor-client-python/) · [anchor-client-node/](anchor-client-node/)
 
+## Use it from Claude Code
+
+Anchor speaks MCP (Model Context Protocol) over Streamable HTTP at `POST
+/mcp`. A local Claude Code instance can connect, see Anchor's tools, and
+call them — same surface as the REST API, exposed under the JSON-RPC
+vocabulary MCP clients speak.
+
+Add to `~/.config/claude/claude_desktop_config.json` (or your platform
+equivalent):
+
+```json
+{
+  "mcpServers": {
+    "anchor": {
+      "type": "http",
+      "url": "http://localhost:8090/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ANCHOR_API_TOKEN"
+      }
+    }
+  }
+}
+```
+
+Omit the `headers` block if `ANCHOR_API_TOKEN` isn't set on the server.
+
+Tools exposed (every one wraps an existing REST endpoint, so behaviour
+stays in lockstep):
+
+| Tool | What it does |
+|---|---|
+| `anchor_list_documents` | List ingested docs (paginated, optional title filter) |
+| `anchor_search_documents` | Semantic search across the corpus by query embedding |
+| `anchor_describe_document` | Full hierarchy: chapters / sections / summaries |
+| `anchor_retrieve` | Top-k chunks wrapped with full ancestor context |
+| `anchor_validate_chunk` | Source-grounded judgment of one chunk vs a query |
+| `anchor_quick_validate` | Vector-only stance score (no LLM call) |
+| `anchor_ask` | Three-agent deliberation; blocks for `wait_seconds`, returns `job_id` on timeout |
+| `anchor_get_ask_result` | Poll a deliberation by `job_id` |
+
+Disable the MCP endpoint with the existing OpenAPI / web-UI toggles —
+or just remove the entry from your client's config.
+
 ## Try it in a browser
 
 A single-page UI ships at **<http://localhost:8090/>** — pick a document,
