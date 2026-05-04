@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedDocument;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedSection;
-import io.aeyer.anchor.server.ingest.PdfTextExtractor.ExtractedPdf;
+import io.aeyer.anchor.server.ingest.ExtractedDocument;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +41,7 @@ class StructuralParserTest {
                 References
                 [1] Some prior work.
                 """;
-        ExtractedPdf extracted = new ExtractedPdf("Test Paper", "abc", text, List.of());
+        ExtractedDocument extracted = new ExtractedDocument("Test Paper", "abc", text, List.of());
 
         ParsedDocument parsed = parser.parse(extracted);
 
@@ -64,7 +64,7 @@ class StructuralParserTest {
     @Test
     void document_with_no_chapter_markers_gets_one_synthetic_chapter() {
         String text = "Just one big blob of prose. No chapters. No sections.";
-        ExtractedPdf extracted = new ExtractedPdf("Plain", "h", text, List.of());
+        ExtractedDocument extracted = new ExtractedDocument("Plain", "h", text, List.of());
 
         ParsedDocument parsed = parser.parse(extracted);
 
@@ -82,7 +82,7 @@ class StructuralParserTest {
                 Body
                 Sentence one is here. Sentence two is here. Sentence three is here. Sentence four is here.
                 """;
-        ExtractedPdf extracted = new ExtractedPdf("X", "h", text, List.of());
+        ExtractedDocument extracted = new ExtractedDocument("X", "h", text, List.of());
 
         ParsedDocument parsed = tightParser.parse(extracted);
         var chunks = parsed.chapters().get(0).sections().get(0).paragraphs().get(0).chunks();

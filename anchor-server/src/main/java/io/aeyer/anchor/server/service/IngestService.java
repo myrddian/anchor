@@ -6,8 +6,8 @@ import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChunk;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedDocument;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedParagraph;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedSection;
-import io.aeyer.anchor.server.ingest.PdfTextExtractor;
-import io.aeyer.anchor.server.ingest.PdfTextExtractor.ExtractedPdf;
+import io.aeyer.anchor.server.ingest.DocumentTextExtractor;
+import io.aeyer.anchor.server.ingest.ExtractedDocument;
 import io.aeyer.anchor.server.ingest.StructuralParser;
 import io.aeyer.anchor.server.llm.Embedding;
 import io.aeyer.anchor.server.persistence.entity.ChapterDbo;
@@ -63,7 +63,7 @@ public class IngestService {
     private static final Logger log = LoggerFactory.getLogger(IngestService.class);
     private static final UUID NAMESPACE = UUID.fromString("a07c4cd9-8c8e-4f3e-9b69-9b6f1a7c1e00");
 
-    private final PdfTextExtractor pdfExtractor;
+    private final DocumentTextExtractor extractor;
     private final StructuralParser parser;
     private final SummariserService summariser;
     private final EmbeddingService embedder;
@@ -76,13 +76,13 @@ public class IngestService {
     private final ChunkRepository chunks;
     private final TransactionTemplate transactionTemplate;
 
-    public IngestService(PdfTextExtractor pdfExtractor, StructuralParser parser,
+    public IngestService(DocumentTextExtractor extractor, StructuralParser parser,
                          SummariserService summariser, EmbeddingService embedder,
                          TokenLedger ledger, WorkerPools pools,
                          DocumentRepository documents, ChapterRepository chapters,
                          SectionRepository sections, ParagraphRepository paragraphs,
                          ChunkRepository chunks, PlatformTransactionManager txManager) {
-        this.pdfExtractor = pdfExtractor;
+        this.extractor = extractor;
         this.parser = parser;
         this.summariser = summariser;
         this.embedder = embedder;
@@ -97,12 +97,12 @@ public class IngestService {
     }
 
     public IngestResult ingest(String sourcePath) {
-        Path pdfPath = Paths.get(sourcePath);
-        if (!Files.isRegularFile(pdfPath)) {
+        Path documentPath = Paths.get(sourcePath);
+        if (!Files.isRegularFile(documentPath)) {
             throw new IngestException("Source path is not a readable file: " + sourcePath);
         }
 
-        ExtractedPdf extracted = parsePdf(pdfPath);
+        ExtractedDocument extracted = parseDocument(documentPath);
         UUID documentId = stableDocumentId(extracted.contentHash());
 
         // Reset the ledger so the snapshot we return covers only this run.
@@ -120,15 +120,15 @@ public class IngestService {
         }
     }
 
-    private ExtractedPdf parsePdf(Path pdfPath) {
+    private ExtractedDocument parseDocument(Path documentPath) {
         try {
-            return pdfExtractor.extract(pdfPath);
+            return extractor.extract(documentPath);
         } catch (IOException e) {
-            throw new IngestException("Could not parse PDF: " + pdfPath, e);
+            throw new IngestException("Could not parse document: " + documentPath, e);
         }
     }
 
-    private IngestResult runIngest(UUID documentId, String sourcePath, ExtractedPdf extracted) {
+    private IngestResult runIngest(UUID documentId, String sourcePath, ExtractedDocument extracted) {
         ParsedDocument parsed = parser.parse(extracted);
 
         Map<UUID, String> paragraphSummaries = new HashMap<>();

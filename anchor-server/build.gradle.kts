@@ -7,6 +7,7 @@ plugins {
 val mapstructVersion: String by project
 val pgvectorJdbcVersion: String by project
 val pdfboxVersion: String by project
+val tikaVersion: String by project
 val okhttpVersion: String by project
 val jacksonVersion: String by project
 val flywayVersion: String by project
@@ -28,6 +29,11 @@ dependencies {
     implementation("com.pgvector:pgvector:$pgvectorJdbcVersion")
 
     implementation("org.apache.pdfbox:pdfbox:$pdfboxVersion")
+
+    // Tika handles every file format that isn't PDF (EPUB, DOCX, RTF, HTML,
+    // plain text, …). Standard-package pulls the per-format parsers in.
+    implementation("org.apache.tika:tika-core:$tikaVersion")
+    implementation("org.apache.tika:tika-parsers-standard-package:$tikaVersion")
 
     implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
     implementation("com.squareup.okhttp3:okhttp-sse:$okhttpVersion")

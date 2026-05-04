@@ -73,12 +73,24 @@ public final class AnchorClient {
     }
 
     /**
-     * Upload a local PDF to the server via multipart, then ingest it. Same
-     * pipeline + same idempotency (re-upload → same content hash → same
-     * stable document_id) as {@link #ingest(String)}.
+     * Upload a local document to the server via multipart, then ingest it.
+     * PDF, EPUB, DOCX, RTF, HTML, plain text — the server dispatches to
+     * PDFBox or Tika based on file extension. Same idempotency (re-upload
+     * → same content hash → same stable document_id) as {@link #ingest(String)}.
      */
     public IngestResponse ingestUpload(java.nio.file.Path localFile) {
-        return transport.postFile("/ingest/upload", localFile, "application/pdf", IngestResponse.class);
+        return transport.postFile("/ingest/upload", localFile, guessContentType(localFile), IngestResponse.class);
+    }
+
+    private static String guessContentType(java.nio.file.Path file) {
+        String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (name.endsWith(".pdf"))                            return "application/pdf";
+        if (name.endsWith(".epub"))                           return "application/epub+zip";
+        if (name.endsWith(".docx"))                           return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (name.endsWith(".rtf"))                            return "application/rtf";
+        if (name.endsWith(".html") || name.endsWith(".htm")) return "text/html";
+        if (name.endsWith(".txt") || name.endsWith(".md"))   return "text/plain";
+        return "application/octet-stream";
     }
 
     /**

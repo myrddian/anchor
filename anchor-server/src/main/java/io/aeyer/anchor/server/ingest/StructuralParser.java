@@ -7,7 +7,7 @@ import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChunk;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedDocument;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedParagraph;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedSection;
-import io.aeyer.anchor.server.ingest.PdfTextExtractor.ExtractedPdf;
+import io.aeyer.anchor.server.ingest.ExtractedDocument;
 import io.aeyer.anchor.server.ingest.SectionDetector.DetectedSection;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +35,7 @@ public class StructuralParser {
         this.props = props;
     }
 
-    public ParsedDocument parse(ExtractedPdf extracted) {
+    public ParsedDocument parse(ExtractedDocument extracted) {
         String[] lines = extracted.text().split("\\R", -1);
         List<DetectedChapter> chapters = chapterDetector.detect(extracted.text(), extracted.outlineTopLevel());
 

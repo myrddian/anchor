@@ -15,7 +15,9 @@
   <main>
     <form id="upload-form">
       <label for="upload-file">Add a paper</label>
-      <input id="upload-file" type="file" accept="application/pdf,.pdf" required>
+      <input id="upload-file" type="file"
+             accept=".pdf,.epub,.docx,.rtf,.html,.htm,.txt,.md,application/pdf,application/epub+zip"
+             required>
       <button type="submit" id="upload-button">Ingest</button>
       <p id="upload-status" class="upload-status"></p>
     </form>
