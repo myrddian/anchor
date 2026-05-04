@@ -157,24 +157,63 @@ Anchor speaks MCP (Model Context Protocol) over Streamable HTTP at `POST
 call them — same surface as the REST API, exposed under the JSON-RPC
 vocabulary MCP clients speak.
 
-Add to `~/.config/claude/claude_desktop_config.json` (or your platform
-equivalent):
+**Claude Code (CLI / IDE).** Drop a project-scoped `.mcp.json` next to
+the repo (or run `claude mcp add --transport http anchor http://localhost:8090/mcp`):
 
 ```json
 {
   "mcpServers": {
     "anchor": {
       "type": "http",
-      "url": "http://localhost:8090/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_ANCHOR_API_TOKEN"
-      }
+      "url": "http://localhost:8090/mcp"
     }
   }
 }
 ```
 
-Omit the `headers` block if `ANCHOR_API_TOKEN` isn't set on the server.
+Add `"headers": {"Authorization": "Bearer YOUR_ANCHOR_API_TOKEN"}` if
+the server has `ANCHOR_API_TOKEN` set.
+
+**Claude Desktop.** Desktop's MCP host only speaks **stdio**, so HTTP
+servers go through the `mcp-remote` bridge — Desktop spawns it as a
+subprocess and it relays JSON-RPC over HTTP to Anchor. Add to
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+or the platform equivalent:
+
+```json
+{
+  "mcpServers": {
+    "anchor": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8090/mcp"]
+    }
+  }
+}
+```
+
+For an authenticated server, append the bearer header:
+
+```json
+{
+  "mcpServers": {
+    "anchor": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8090/mcp",
+        "--header",
+        "Authorization: Bearer ${ANCHOR_API_TOKEN}"
+      ],
+      "env": { "ANCHOR_API_TOKEN": "paste-real-token-here" }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after editing. Verify it connected via
+**Settings → Developer → MCP Servers** (you should see `anchor` listed
+with all 8 tools).
 
 Tools exposed (every one wraps an existing REST endpoint, so behaviour
 stays in lockstep):
