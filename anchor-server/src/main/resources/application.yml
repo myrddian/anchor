@@ -47,6 +47,18 @@ management:
       # database probe details so misconfiguration is obvious without log diving.
       show-details: always
       show-components: always
+  tracing:
+    # Sample everything in dev — the deliberation flow is the interesting bit
+    # and it's slow enough that nothing breaks under full sampling. Drop to
+    # ~0.1 in production via management.tracing.sampling.probability.
+    sampling:
+      probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      # OTLP/HTTP — works against Tempo, Jaeger (with HTTP receiver), Honeycomb,
+      # Datadog Agent, etc. Default points at the local-collector convention;
+      # exporter logs + drops if nothing's listening, doesn't fail boot.
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 # Inference provider. Anchor speaks the OpenAI chat-completions and embeddings
 # wire format — works with LM Studio (the dev default), real OpenAI, vLLM,

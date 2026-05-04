@@ -22,6 +22,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    // OTLP exporter — sends spans to any OTel collector (Tempo, Jaeger,
+    // Honeycomb, Datadog, …). Default endpoint is localhost:4318 over HTTP;
+    // when nothing's listening the exporter logs and drops, doesn't crash.
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
 
     implementation("org.flywaydb:flyway-core:$flywayVersion")
     implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")

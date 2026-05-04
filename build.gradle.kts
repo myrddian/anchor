@@ -57,7 +57,11 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing", "-Xlint:-serial", "-Werror"))
+        // -Xlint:-try silences "auto-closeable ignored" warnings — the
+        // try-with-resources scope pattern (e.g. Tracer.SpanInScope) is the
+        // idiomatic OTel/Micrometer-Tracing API and the resource isn't
+        // supposed to be referenced inside the block.
+        options.compilerArgs.addAll(listOf("-parameters", "-Xlint:all", "-Xlint:-processing", "-Xlint:-serial", "-Xlint:-try", "-Werror"))
     }
 
     tasks.withType<Test>().configureEach {
