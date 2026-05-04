@@ -68,4 +68,67 @@ class ChapterDetectorTest {
         assertThat(chapters.get(0).synthetic()).isTrue();
         assertThat(chapters.get(0).startLine()).isZero();
     }
+
+    @Test
+    void front_and_back_matter_headings_are_excluded_from_chapters() {
+        // Mirrors what an academic paper's PDF outline looks like — body
+        // sections plus References/Appendix at the end. The deliberation
+        // model used to write things like "the References chapter
+        // concludes with a counterexample" because the bibliography was
+        // promoted to a real chapter; this test pins the fix.
+        String text = """
+                Chapter 1 Introduction
+                Intro content.
+                Chapter 2 Methods
+                Methods content.
+                References
+                Bibliography content here.
+                Appendix
+                Appendix content.
+                """;
+        List<DetectedChapter> chapters = detector.detect(text, List.of());
+
+        assertThat(chapters)
+                .extracting(DetectedChapter::title)
+                .doesNotContain("References", "Appendix")
+                .hasSize(2);
+        assertThat(chapters.get(0).orderIndex()).isZero();
+        assertThat(chapters.get(1).orderIndex()).isOne();
+    }
+
+    @Test
+    void numbered_back_matter_is_also_excluded() {
+        // A common variant: "5. References" / "6. Appendix A" — the leading
+        // number must not defeat the front/back-matter filter.
+        String text = """
+                Chapter 1 Body
+                Body content.
+                5. References
+                refs.
+                6. Appendix
+                appendix.
+                """;
+        List<DetectedChapter> chapters = detector.detect(text, List.of());
+
+        assertThat(chapters).hasSize(1);
+        assertThat(chapters.get(0).title()).isEqualTo("Chapter 1 Body");
+    }
+
+    @Test
+    void excluded_titles_in_pdf_outline_are_dropped_too() {
+        // The other entry path — PDF outline rather than regex.
+        String text = """
+                Introduction
+                content
+                Methods
+                methods content
+                References
+                refs content
+                """;
+        List<DetectedChapter> chapters = detector.detect(text,
+                List.of("Introduction", "Methods", "References"));
+
+        assertThat(chapters).extracting(DetectedChapter::title)
+                .containsExactly("Introduction", "Methods");
+    }
 }

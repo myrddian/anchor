@@ -2,6 +2,7 @@ package io.aeyer.anchor.server.ingest;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,27 @@ public class ChapterDetector {
             Pattern.compile("^\\s*Chapter\\s+[0-9IVXLC]+\\b.*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PART_REGEX =
             Pattern.compile("^\\s*Part\\s+[0-9IVXLC]+\\b.*", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Top-level headings that look chapter-shaped to the regex/outline
+     * detector but are non-content (front matter, back matter, navigational
+     * scaffolding). When these get promoted to chapters, the per-chapter
+     * summarizer dutifully writes a "References" or "Appendix" summary,
+     * which the deliberation prompt then surfaces as authoritative content
+     * — and the model writes things like "the References chapter concludes
+     * with a counterexample," fragment-stitching that reads as fabrication.
+     *
+     * Filter is run after stripping leading numeric prefixes (e.g.
+     * "5. References" → "references") so numbered bibliographies are
+     * caught alongside unnumbered ones.
+     */
+    private static final Set<String> EXCLUDED_CHAPTER_TITLES = Set.of(
+            "references", "bibliography", "works cited",
+            "acknowledgements", "acknowledgments",
+            "appendix", "appendices",
+            "supporting information", "supplementary material",
+            "table of contents", "contents", "index",
+            "abstract");
 
     public List<DetectedChapter> detect(String fullText, List<String> pdfOutlineTopLevel) {
         if (fullText == null || fullText.isBlank()) return List.of();
@@ -63,13 +85,31 @@ public class ChapterDetector {
 
     private List<DetectedChapter> materialise(String[] lines, List<Integer> starts, boolean synthetic) {
         List<DetectedChapter> chapters = new ArrayList<>();
+        int order = 0;
         for (int i = 0; i < starts.size(); i++) {
             int start = starts.get(i);
             int end = (i + 1 < starts.size()) ? starts.get(i + 1) : lines.length;
             String title = lines[start].trim();
-            chapters.add(new DetectedChapter(title, i, start, end, synthetic));
+            if (isExcludedTitle(title)) continue;  // skip front/back-matter
+            chapters.add(new DetectedChapter(title, order++, start, end, synthetic));
         }
         return chapters;
+    }
+
+    /**
+     * True when the heading is non-content scaffolding we don't want
+     * promoted to a first-class chapter — see {@link #EXCLUDED_CHAPTER_TITLES}.
+     * Strips leading numbering (e.g. "5. References") + non-letter chars
+     * before matching so "5. References", "References", and
+     * "REFERENCES" all collapse to the same key.
+     */
+    private static boolean isExcludedTitle(String title) {
+        if (title == null) return false;
+        String key = title.toLowerCase(Locale.ROOT)
+                .replaceAll("^[\\d\\.\\s]+", "")    // strip leading numbering
+                .replaceAll("[^a-z\\s]", "")
+                .trim();
+        return EXCLUDED_CHAPTER_TITLES.contains(key);
     }
 
     /** Range {@code [startLine, endLine)} — the chapter heading is line {@code startLine}. */
