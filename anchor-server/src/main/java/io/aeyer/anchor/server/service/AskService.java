@@ -122,6 +122,7 @@ public class AskService {
             transitionWithEvent(job, JobStatus.PROPOSING);
             AgentEnvelope proposer = runProposer(job.jobId(), ctx, topChunks, job.query());
             job.setProposer(proposer);
+            jobs.persist(job);
             if (proposer.error() != null) {
                 failJob(job, "Proposer failed: " + proposer.error());
                 return;
@@ -132,6 +133,7 @@ public class AskService {
             transitionWithEvent(job, JobStatus.CRITIQUING);
             AgentEnvelope critic = runCritic(ctx, job.query(), proposer.response());
             job.setCritic(critic);
+            jobs.persist(job);
             stream.emitAgentComplete(job.jobId(), JobEventType.CRITIC_COMPLETE,
                     critic.response() == null ? "(critic failed)" : critic.response());
             // Critic failure isn't fatal — synthesiser can proceed with no challenges.
@@ -141,6 +143,7 @@ public class AskService {
             AgentEnvelope synthesiser = runSynthesiser(job.jobId(), ctx, topChunks, job.query(),
                     proposer.response(), critic);
             job.setSynthesiser(synthesiser);
+            jobs.persist(job);
             if (synthesiser.error() != null) {
                 failJob(job, "Synthesiser failed: " + synthesiser.error());
                 return;
@@ -149,6 +152,7 @@ public class AskService {
 
             String finalResponse = extractSynthesiserResponse(synthesiser.response());
             job.complete(finalResponse, Instant.now());
+            jobs.persist(job);
             stream.emitFinal(job.jobId(), finalResponse);
         } catch (Exception e) {
             log.error("Deliberation {} failed", job.jobId(), e);
@@ -160,11 +164,13 @@ public class AskService {
 
     private void transitionWithEvent(AskJob job, JobStatus next) {
         job.transition(next);
+        jobs.persist(job);
         stream.emitStatus(job.jobId(), next.name());
     }
 
     private void failJob(AskJob job, String message) {
         job.fail(message, Instant.now());
+        jobs.persist(job);
         stream.emitFailure(job.jobId(), message);
     }
 

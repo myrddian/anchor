@@ -46,8 +46,14 @@ class IngestJobRunnerTest {
     @BeforeEach
     void setUp() {
         ingest = mock(IngestService.class);
-        store = new IngestJobStore();
+        io.aeyer.anchor.server.persistence.repo.IngestJobRepository repo =
+                mock(io.aeyer.anchor.server.persistence.repo.IngestJobRepository.class);
+        when(repo.findByStatusNotIn(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(java.util.List.of());
+        when(repo.findAll()).thenReturn(java.util.List.of());
+        store = new IngestJobStore(repo);
         ReflectionTestUtils.setField(store, "retention", Duration.ofHours(2));
+        store.recoverFromDb();
 
         // Hand the runner a real ExecutorService masquerading as the ingest
         // pool — direct-execute would race with the dedup-map check.

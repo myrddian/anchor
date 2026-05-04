@@ -89,13 +89,16 @@ public class IngestJobRunner {
         CompletableFuture.runAsync(() -> {
             try {
                 job.start();
+                store.persist(job);
                 IngestService.IngestResult result = ingest.runOnCurrentThread(sourcePath, reporter);
                 job.complete(result, Instant.now());
+                store.persist(job);
                 log.info("Ingest job {} completed → document {}", job.jobId(), result.documentId());
             } catch (Throwable t) {
                 log.warn("Ingest job {} failed: {}", job.jobId(), t.getMessage(), t);
                 String msg = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
                 job.fail(msg, Instant.now());
+                store.persist(job);
             } finally {
                 if (hashForCleanup != null) {
                     // Only clear if WE'RE still the registered job — a later
@@ -130,20 +133,35 @@ public class IngestJobRunner {
         }
     }
 
-    /** Adapter — funnels reporter callbacks straight into the job. */
-    private static final class JobBackedReporter implements IngestProgressReporter {
+    /**
+     * Adapter — funnels reporter callbacks straight into the job, and
+     * persists on phase transitions only. Per-percent ticks remain in
+     * memory only: paragraph summarisation can fire 100+ progress events
+     * per book, persisting every one would burn DB writes for state that
+     * can't survive a server restart anyway.
+     */
+    private final class JobBackedReporter implements IngestProgressReporter {
         private final IngestJob job;
+        private volatile IngestPhase lastPersistedPhase;
 
-        JobBackedReporter(IngestJob job) { this.job = job; }
+        JobBackedReporter(IngestJob job) {
+            this.job = job;
+            this.lastPersistedPhase = job.phase();
+        }
 
         @Override
         public void report(IngestPhase phase, int percent, String message) {
             job.updateProgress(phase, percent, message);
+            if (phase != null && phase != lastPersistedPhase) {
+                lastPersistedPhase = phase;
+                store.persist(job);
+            }
         }
 
         @Override
         public void attachDocument(UUID documentId, String title) {
             job.attachDocument(documentId, title);
+            store.persist(job);
         }
     }
 }
