@@ -133,7 +133,14 @@ worker threads (`chat-worker-0`, `embedding-worker-0..1`,
 `deliberation-worker-0..3`, `ingest-worker-0`) — that's how SPEC §7.9 thread
 correlation surfaces in practice.
 
-### 5. Shell (interactive)
+### 5. Web UI
+
+Open <http://localhost:8090/> in a browser. Pick a document, type a question,
+watch the proposer / critic / synthesiser deliberation render live over SSE.
+Built for non-developer demo audiences (chemists, reviewers) who shouldn't
+have to look at JSON. No build step — single static page served from the JAR.
+
+### 6. Shell (interactive)
 
 ```bash
 ./gradlew :anchor-shell:bootRun
@@ -148,7 +155,7 @@ anchor:> ask "does compound X inhibit enzyme Y"
 anchor:> demo "does compound X inhibit enzyme Y"   # /retrieve + /ask side-by-side
 ```
 
-### 6. SDK (Java)
+### 7. SDK (Java)
 
 ```java
 AnchorClient anchor = AnchorClient.builder()

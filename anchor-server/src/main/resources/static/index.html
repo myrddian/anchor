@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anchor</title>
+  <link rel="stylesheet" href="/anchor.css">
+</head>
+<body>
+  <header>
+    <h1>Anchor</h1>
+    <p class="tagline">Source-grounded chunk validation. Documents-as-databases.</p>
+  </header>
+
+  <main>
+    <form id="ask-form">
+      <label for="document">Document</label>
+      <select id="document" required>
+        <option value="">Loading…</option>
+      </select>
+
+      <label for="query">Question</label>
+      <input id="query" type="text" placeholder="e.g. does compound X inhibit enzyme Y?" required>
+
+      <button type="submit" id="ask-button">Ask</button>
+    </form>
+
+    <section id="status-bar" class="hidden">
+      <span class="label">Status</span>
+      <span id="status" class="status-pill">QUEUED</span>
+      <span id="job-id" class="job-id"></span>
+    </section>
+
+    <section class="agents">
+      <article id="proposer-panel" class="agent">
+        <header>
+          <h2>Proposer <span class="evidence-tag">full hierarchy</span></h2>
+          <p class="agent-role">Drafts a thorough first-person answer with full access to chapters, sections, and the most relevant chunks.</p>
+        </header>
+        <div id="proposer-content" class="agent-body"></div>
+      </article>
+
+      <article id="critic-panel" class="agent">
+        <header>
+          <h2>Critic <span class="evidence-tag macro">macro view only</span></h2>
+          <p class="agent-role">Sees only chapter + document summaries. Challenges anything in the proposer's draft that the macro view can't verify.</p>
+        </header>
+        <div id="critic-content" class="agent-body">
+          <ul id="critic-challenges"></ul>
+        </div>
+      </article>
+
+      <article id="synthesiser-panel" class="agent">
+        <header>
+          <h2>Synthesiser <span class="evidence-tag">full hierarchy + debate</span></h2>
+          <p class="agent-role">Sees the proposer's draft, the critic's challenges, and the full hierarchy. Produces the final answer.</p>
+        </header>
+        <div id="synthesiser-content" class="agent-body"></div>
+        <details id="grounding-panel" class="grounding hidden">
+          <summary>Grounding</summary>
+          <pre id="grounding-content"></pre>
+        </details>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      <a href="/actuator/health" target="_blank">/actuator/health</a> ·
+      <a href="https://github.com/myrddian/anchor" target="_blank">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="/anchor.js" defer></script>
+</body>
+</html>
