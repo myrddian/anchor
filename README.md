@@ -2,39 +2,115 @@
 
 [![CI](https://github.com/myrddian/anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/myrddian/anchor/actions/workflows/ci.yml)
 
-> **Source-grounded chunk validation as a primitive.** v0 in progress — see
-> [SPEC.md](SPEC.md) for the full design.
+> **RAG that knows when its source disagrees with itself.**
+> Source-grounded chunk validation + three-agent deliberation, in one Spring
+> Boot service. Speaks REST, MCP, and Java / Python / Node SDKs.
 
-A retrieved chunk doesn't speak for its document. A paper's *"compound X
-binds enzyme Y at K_i = 12 nM"* can be exactly the claim the discussion
-section then demolishes. Vanilla RAG hands that chunk to a downstream
-LLM with no warning; the LLM fluently mis-reads it; the reader trusts a
-confident, grounded-looking, **wrong** answer.
+*Built by [Enzo Reyes](https://github.com/myrddian). v0 in progress — see
+[SPEC.md](SPEC.md) for the full design.*
 
-Anchor exposes one primitive — *source-grounded chunk validation, given the
-document's full argument* — through two interfaces shaped for two consumers:
+<!--
+  Drop a screenshot or short GIF of the browser UI here once recorded —
+  the proposer / critic / synthesiser panels rendering live tokens on a
+  real chemistry paper is the highest-leverage hero image. A trimmed
+  Jaeger trace screenshot also works (see "Observability" below).
+-->
+
+![Three-agent deliberation rendering live](docs/images/deliberation.gif)
+
+> *Screenshot pending — meanwhile, here's the actual span tree from a
+> real run, captured via OpenTelemetry into Jaeger:*
+>
+> ```
+> deliberation               24,686 ms   ← whole job
+> ├── retrieval                 181 ms   anchor.retrieved_chunks=4
+> │   └── llm.embed              175 ms   anchor.dimensions=768
+> ├── proposer                6,611 ms   evidence_access=FULL_HIERARCHY
+> │   └── llm.chat (stream)   6,610 ms   prompt=5849ch  response=1201ch
+> ├── critic                  4,884 ms   evidence_access=MACRO_ONLY  challenges=1
+> │   └── llm.chat            4,883 ms   prompt=4622ch  response=725ch
+> └── synthesiser            12,940 ms   evidence_access=FULL_HIERARCHY_PLUS_DEBATE
+>     └── llm.chat (stream) 12,929 ms   prompt=8394ch  response=2340ch
+> ```
+>
+> The critic raised exactly one challenge — that the proposer was citing
+> structural section markers it shouldn't be able to see. The synthesiser
+> revised. *That's the evidence asymmetry working as designed*, visible in
+> a single trace.
+
+## Why Anchor exists
+
+Vanilla retrieval-augmented generation treats a document as a bag of
+chunks. You embed the chunks, embed the query, take the top-K, stuff them
+into a prompt, and trust the model to "ground" its answer in what you
+handed it. The pipeline never asks whether the chunks *agreed* with each
+other, or whether the document the chunks came from agreed with the
+query. The model fills that gap with confident prose either way.
+
+The failure mode that motivates Anchor: a chunk is technically responsive
+to the query — it contains the right keywords, the right entities, even
+the right numbers — but it lives inside a paragraph that the document
+itself goes on to refute. *"Compound X binds enzyme Y at K_i = 12 nM"*
+might be the steelman the discussion section then dismantles. A
+keyword-or-cosine match returns the chunk; the LLM reads the chunk; the
+reader gets a sentence that sounds source-grounded and is materially
+wrong. This isn't an edge case in scientific literature. It's the
+default shape of a careful argument.
+
+Anchor pushes that judgment back into the system instead of relying on
+the downstream LLM to notice. Every chunk gets validated against the
+*document's full argument* — at minimum returning enums a machine can
+branch on (`argumentative_role`, `document_stance_on_query`), and on
+demand running a three-agent deliberation where the critic only sees
+the macro view. The critic's restricted evidence is what keeps the
+synthesiser honest. The whole transcript is the trust mechanism, not
+the model's confident tone.
+
+## What Anchor is and isn't
+
+| Anchor IS | Anchor is NOT |
+|---|---|
+| A source-grounded validation primitive | A vector database (it uses pgvector) |
+| A three-agent deliberation orchestrator | A chat product or assistant UI |
+| An OpenAI-compatible-LLM-driven service | An LLM provider (bring your own — LM Studio, OpenAI, vLLM, …) |
+| An engineering scaffold for the idea | A research artifact yet (Phase 0 evaluation pending — see [SPEC §6.7](SPEC.md)) |
+
+## Two interfaces, one primitive
 
 - **`POST /validate`** — for **machines.** Synchronous JSON judgment with
-  `argumentative_role` and `document_stance_on_query` enums. Branch on it.
-  When a chunk is steelman-then-refuted or lives in a doc that *rejects*
-  the query, the response also returns the chunks doing the refuting.
+  `argumentative_role` and `document_stance_on_query` enums. Branch on
+  it. When a chunk is steelman-then-refuted or lives in a doc that
+  *rejects* the query, the response also returns the chunks doing the
+  refuting (vector search on `"not " + query` inside the same document).
 - **`POST /documents/{id}/ask`** — for **humans.** Async three-agent
   deliberation (proposer / critic / synthesiser) with **differentiated
   evidence access**, streamed token-by-token. The critic sees only the
   macro view (chapter + doc summaries); that asymmetry forces structural
-  disagreement instead of paraphrase. The transparency *is* the trust.
+  disagreement instead of paraphrase.
 
-Both back onto the same hierarchy: `documents → chapters → sections →
-paragraphs → chunks` with claim-bearing summaries at each level. **Raw
-text never appears in inputs to layers above paragraph summarisation**
-(SPEC §4.5) — section / chapter / doc summaries see only the summaries
-below them.
+Both back onto the same hierarchy:
 
-## Try it in 60 seconds
+```
+document
+  └── chapter
+        └── section
+              └── paragraph        ← only layer that sees raw chunk text
+                    └── chunk      ← embedding lives here
+```
+
+Each layer carries a claim-bearing summary. **Raw text never appears in
+inputs to layers above paragraph summarisation** ([SPEC §4.5](SPEC.md)) —
+section / chapter / doc summaries see only the summaries below them.
+That compression rule is what makes the macro-only critic work.
+
+## Try it locally
+
+Bring up Postgres, point Anchor at any OpenAI-compatible LLM, run the
+server. ~5 minutes the first time, faster after.
 
 ```bash
 docker compose up -d postgres                    # pgvector on :5433
-cp .env.example .env                             # set LLM_BASE_URL
+cp .env.example .env                             # set LLM_BASE_URL etc.
 ./gradlew :anchor-server:bootRun                 # boots on :8090
 ```
 
@@ -74,47 +150,6 @@ curl -N http://localhost:8090/jobs/a1.../stream     # SSE
 
 The full API is documented at **<http://localhost:8090/swagger-ui/index.html>**
 (spec at `/v3/api-docs`) — the contract for SDK consumers and integrators.
-
-## SDKs
-
-Three first-party SDKs, same surface, language-idiomatic ergonomics:
-
-```java
-// Java
-AnchorClient client = AnchorClient.builder()
-        .baseUrl("http://localhost:8090")
-        .apiToken(System.getenv("ANCHOR_API_TOKEN"))   // optional
-        .build();
-
-AnchorDocument doc = client.use("Smith2024");          // by title or UUID
-ValidateResponse v = doc.validate(chunkId, "compound X inhibits enzyme Y");
-
-AskHandle handle = doc.ask("does compound X inhibit enzyme Y?");
-handle.subscribe(event -> render(event));              // live SSE
-AskJobResponse result = handle.await(Duration.ofMinutes(2));
-```
-
-```python
-# Python — pip install -e anchor-client-python
-from anchor_client import AnchorClient
-
-client = AnchorClient(base_url="http://localhost:8090", api_token=...)
-doc = client.use(title_substring="Smith2024")
-result = doc.ask("does compound X inhibit enzyme Y?").await_completion()
-print(result["final_response"])
-```
-
-```js
-// Node 18+ — ESM, zero dependencies
-import { AnchorClient } from "@aeyer/anchor-client";
-
-const client = new AnchorClient({ baseUrl: "http://localhost:8090", apiToken: ... });
-const doc = await client.use({ titleSubstring: "Smith2024" });
-const handle = await doc.ask("does compound X inhibit enzyme Y?");
-for await (const event of handle.streamEvents()) { /* ... */ }
-```
-
-[anchor-client/](anchor-client/) · [anchor-client-python/](anchor-client-python/) · [anchor-client-node/](anchor-client-node/)
 
 ## Use it from Claude Code
 
@@ -159,6 +194,47 @@ stays in lockstep):
 Disable the MCP endpoint with the existing OpenAPI / web-UI toggles —
 or just remove the entry from your client's config.
 
+## SDKs
+
+Three first-party SDKs, same surface, language-idiomatic ergonomics:
+
+```java
+// Java
+AnchorClient client = AnchorClient.builder()
+        .baseUrl("http://localhost:8090")
+        .apiToken(System.getenv("ANCHOR_API_TOKEN"))   // optional
+        .build();
+
+AnchorDocument doc = client.use("Smith2024");          // by title or UUID
+ValidateResponse v = doc.validate(chunkId, "compound X inhibits enzyme Y");
+
+AskHandle handle = doc.ask("does compound X inhibit enzyme Y?");
+handle.subscribe(event -> render(event));              // live SSE
+AskJobResponse result = handle.await(Duration.ofMinutes(2));
+```
+
+```python
+# Python — pip install -e anchor-client-python
+from anchor_client import AnchorClient
+
+client = AnchorClient(base_url="http://localhost:8090", api_token=...)
+doc = client.use(title_substring="Smith2024")
+result = doc.ask("does compound X inhibit enzyme Y?").await_completion()
+print(result["final_response"])
+```
+
+```js
+// Node 18+ — ESM, zero dependencies
+import { AnchorClient } from "@aeyer/anchor-client";
+
+const client = new AnchorClient({ baseUrl: "http://localhost:8090", apiToken: ... });
+const doc = await client.use({ titleSubstring: "Smith2024" });
+const handle = await doc.ask("does compound X inhibit enzyme Y?");
+for await (const event of handle.streamEvents()) { /* ... */ }
+```
+
+[anchor-client/](anchor-client/) · [anchor-client-python/](anchor-client-python/) · [anchor-client-node/](anchor-client-node/)
+
 ## Try it in a browser
 
 A single-page UI ships at **<http://localhost:8090/>** — pick a document,
@@ -184,6 +260,9 @@ ANCHOR_OPENAPI_ENABLED=true
 
 # Postgres (defaults match docker-compose.yml)
 ANCHOR_DB_URL=jdbc:postgresql://localhost:5433/anchor
+
+# OpenTelemetry — optional
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
 ```
 
 Full reference: [.env.example](.env.example). The Gradle build auto-loads
@@ -193,24 +272,29 @@ Full reference: [.env.example](.env.example). The Gradle build auto-loads
 
 | Phase | Status |
 |---|---|
-| 0 — Spike (manual chemist eyeball) | Pending |
 | 1 — Foundations + Ingest | **Done** |
 | 2 — `/validate` + Document resource | **Done** |
 | 3 — Deliberation core (`/ask` + jobs) | **Done** |
 | 4 — SSE + `/retrieve` + SDK + shell | **Done** |
+| 0 — External validation (chemist eyeball, [SPEC §6.7](SPEC.md)) | Pending |
 | 5 — Writeup + tag v0.1.0 | Open |
 | 6 — Maven Central / npm / PyPI | Open |
 
+Phase 0 is the *empirical* gate — does the deliberation actually catch
+what vanilla RAG misses? The engineering is done; the case-study eval
+isn't, and is what would close the loop on the central claim.
+
 **Not stable until v0.2.0.** Nothing published yet; install from this
-checkout. ~90 unit + integration tests; the integration suite is gated on a
-pgvector instance reachable on `localhost:5433`.
+checkout. ~100 unit + integration tests; the integration suite is gated
+on a pgvector instance reachable on `localhost:5433`.
 
 ## Stack
 
 Java 21, Spring Boot 3.3.x, Postgres 16 + pgvector (HNSW cosine), Apache
 PDFBox 3.x + Apache Tika 2.9.x for ingest, OkHttp + Jackson for the
 inference client, springdoc for OpenAPI, Flyway for migrations, MapStruct,
-JUnit 5 + Testcontainers. Apache 2.0.
+Micrometer + OpenTelemetry for tracing, JUnit 5 + Testcontainers. Apache
+2.0.
 
 ## Documentation
 
