@@ -124,9 +124,12 @@ the env vars directly on every command — both work.
 ### 4. Server
 
 ```bash
-set -a; source .env; set +a   # or pass LM_STUDIO_BASE_URL=… inline
 ./gradlew :anchor-server:bootRun
 ```
+
+The Gradle build auto-loads `.env` for `bootRun` (and the test suite), so
+nothing else is needed. Already-exported shell vars and inline overrides
+(`LM_STUDIO_BASE_URL=… ./gradlew …`) still win.
 
 Server boots on `:8090` by default. Watch the startup log for the named
 worker threads (`chat-worker-0`, `embedding-worker-0..1`,
