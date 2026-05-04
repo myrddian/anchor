@@ -9,34 +9,33 @@
 *Built by [Enzo Reyes](https://github.com/myrddian). v0 in progress — see
 [SPEC.md](SPEC.md) for the full design.*
 
-<!--
-  Drop a screenshot or short GIF of the browser UI here once recorded —
-  the proposer / critic / synthesiser panels rendering live tokens on a
-  real chemistry paper is the highest-leverage hero image. A trimmed
-  Jaeger trace screenshot also works (see "Observability" below).
--->
+![Three-agent deliberation in Anchor's web UI — proposer drafts, critic (macro-only) challenges, synthesiser revises](docs/images/deliberation.png)
 
-![Three-agent deliberation rendering live](docs/images/deliberation.gif)
+*Real run: the proposer drafts an answer with full hierarchy access, the
+critic (restricted to chapter + doc summaries) flags that the proposer
+cited structural section markers it shouldn't be able to see, and the
+synthesiser revises. The evidence asymmetry working as designed.*
 
-> *Screenshot pending — meanwhile, here's the actual span tree from a
-> real run, captured via OpenTelemetry into Jaeger:*
->
-> ```
-> deliberation               24,686 ms   ← whole job
-> ├── retrieval                 181 ms   anchor.retrieved_chunks=4
-> │   └── llm.embed              175 ms   anchor.dimensions=768
-> ├── proposer                6,611 ms   evidence_access=FULL_HIERARCHY
-> │   └── llm.chat (stream)   6,610 ms   prompt=5849ch  response=1201ch
-> ├── critic                  4,884 ms   evidence_access=MACRO_ONLY  challenges=1
-> │   └── llm.chat            4,883 ms   prompt=4622ch  response=725ch
-> └── synthesiser            12,940 ms   evidence_access=FULL_HIERARCHY_PLUS_DEBATE
->     └── llm.chat (stream) 12,929 ms   prompt=8394ch  response=2340ch
-> ```
->
-> The critic raised exactly one challenge — that the proposer was citing
-> structural section markers it shouldn't be able to see. The synthesiser
-> revised. *That's the evidence asymmetry working as designed*, visible in
-> a single trace.
+The same flow, observed end-to-end via OpenTelemetry into Jaeger:
+
+![Jaeger trace tree showing deliberation → retrieval → proposer → critic → synthesiser, with the synthesiser as the obvious bottleneck](docs/images/jaeger-trace.png)
+
+```
+deliberation               24,686 ms   ← whole job
+├── retrieval                 181 ms   anchor.retrieved_chunks=4
+│   └── llm.embed              175 ms   anchor.dimensions=768
+├── proposer                6,611 ms   evidence_access=FULL_HIERARCHY
+│   └── llm.chat (stream)   6,610 ms   prompt=5849ch  response=1201ch
+├── critic                  4,884 ms   evidence_access=MACRO_ONLY  challenges=1
+│   └── llm.chat            4,883 ms   prompt=4622ch  response=725ch
+└── synthesiser            12,940 ms   evidence_access=FULL_HIERARCHY_PLUS_DEBATE
+    └── llm.chat (stream) 12,929 ms   prompt=8394ch  response=2340ch
+```
+
+The synthesiser is the bottleneck (~13s of 25s) because it sees the
+largest prompt — full hierarchy *plus* the proposer's draft *plus* the
+critic's challenges. Every span carries the `evidence_access` tag so
+"which evidence slice produced which latency" is one filter away.
 
 ## Why Anchor exists
 
