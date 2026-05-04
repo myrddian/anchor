@@ -3,12 +3,17 @@ package io.aeyer.anchor.server.api;
 import io.aeyer.anchor.protocol.documents.ChapterDetail;
 import io.aeyer.anchor.protocol.documents.DocumentDetailResponse;
 import io.aeyer.anchor.protocol.documents.DocumentListResponse;
+import io.aeyer.anchor.protocol.documents.DocumentSearchHit;
+import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
 import io.aeyer.anchor.protocol.documents.SectionDetail;
 import io.aeyer.anchor.server.domain.Document;
 import io.aeyer.anchor.server.domain.DocumentContext;
+import io.aeyer.anchor.server.llm.Embedding;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepository;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepositoryDomain.DocumentCounts;
+import io.aeyer.anchor.server.persistence.repo.DocumentRepositoryDomain.DocumentSearchRow;
+import io.aeyer.anchor.server.service.EmbeddingService;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -24,11 +29,47 @@ import org.springframework.web.bind.annotation.RestController;
 public class DocumentController {
 
     private static final int DEFAULT_LIMIT = 50;
+    private static final int DEFAULT_SEARCH_K = 20;
 
     private final DocumentRepository documents;
+    private final EmbeddingService embedder;
 
-    public DocumentController(DocumentRepository documents) {
+    public DocumentController(DocumentRepository documents, EmbeddingService embedder) {
         this.documents = documents;
+        this.embedder = embedder;
+    }
+
+    /**
+     * Semantic search across documents — embeds the caller's query and ranks
+     * documents by cosine of that embedding against each doc's stored
+     * summary embedding (populated at ingest, backfilled at startup for
+     * pre-V2 docs). Topical relevance, not stance — for stance use
+     * /validate/quick on a single document.
+     */
+    @GetMapping("/search")
+    public DocumentSearchResponse search(
+            @RequestParam("q") String query,
+            @RequestParam(value = "k", defaultValue = "20") int k) {
+        if (query == null || query.isBlank()) {
+            return new DocumentSearchResponse(query, k, List.of());
+        }
+        int safeK = k <= 0 ? DEFAULT_SEARCH_K : k;
+
+        List<Embedding> embeddings = embedder.embedAll(List.of(query));
+        if (embeddings.isEmpty()) {
+            return new DocumentSearchResponse(query, safeK, List.of());
+        }
+        List<DocumentSearchRow> rows = documents.searchDocumentsBySummary(
+                embeddings.get(0).vector(), safeK);
+
+        List<DocumentSearchHit> hits = rows.stream().map(r -> new DocumentSearchHit(
+                r.documentId(),
+                r.title(),
+                r.sourcePath(),
+                r.docSummary(),
+                r.ingestedAt(),
+                r.similarity())).toList();
+        return new DocumentSearchResponse(query, safeK, hits);
     }
 
     @GetMapping

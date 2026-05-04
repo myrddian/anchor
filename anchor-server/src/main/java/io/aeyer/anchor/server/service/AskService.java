@@ -16,6 +16,10 @@ import io.aeyer.anchor.server.persistence.repo.DocumentRepository;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepositoryDomain.ChunkSearchHit;
 import io.aeyer.anchor.server.sse.JobStreamRegistry;
 import io.aeyer.anchor.server.workers.WorkerPools;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -60,6 +64,8 @@ public class AskService {
     private final ObjectMapper mapper;
     private final JobStreamRegistry stream;
     private final SynthesiserOutputParser synthParser;
+    private final Tracer tracer;
+    private final MeterRegistry meters;
 
     @Value("classpath:prompts/ask-proposer.txt") Resource proposerPrompt;
     @Value("classpath:prompts/ask-critic.txt") Resource criticPrompt;
@@ -77,7 +83,7 @@ public class AskService {
 
     public AskService(JobStore jobs, DocumentRepository documents,
                       LMStudioClient llm, WorkerPools pools, ObjectMapper mapper,
-                      JobStreamRegistry stream) {
+                      JobStreamRegistry stream, Tracer tracer, MeterRegistry meters) {
         this.jobs = jobs;
         this.documents = documents;
         this.llm = llm;
@@ -85,6 +91,8 @@ public class AskService {
         this.mapper = mapper;
         this.stream = stream;
         this.synthParser = new SynthesiserOutputParser(mapper);
+        this.tracer = tracer;
+        this.meters = meters;
     }
 
     @PostConstruct
@@ -110,61 +118,142 @@ public class AskService {
     }
 
     private void runDeliberation(AskJob job) {
-        try {
+        // Parent span for the whole deliberation. All LLM / retrieval spans
+        // are children, so a single trace tells the whole "where did the time
+        // go" story for one job. Spans live on the orchestrator (deliberation
+        // pool) thread; LLM calls are submitted to chat pool but the
+        // orchestrator blocks on .get() so the latency is captured here
+        // without needing cross-thread context propagation.
+        meters.counter("anchor.deliberations.started").increment();
+        Timer.Sample sample = Timer.start(meters);
+        String terminalOutcome = "failed";  // overwritten on success/cancel
+        Span parent = tracer.nextSpan().name("deliberation")
+                .tag("anchor.job_id", job.jobId().toString())
+                .tag("anchor.document_id", job.documentId().toString())
+                .tag("anchor.query_chars", String.valueOf(job.query().length()))
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(parent)) {
             DocumentContext ctx = documents.findDocumentContextAsDomain(job.documentId())
                     .orElseThrow(() -> new IngestException("Document vanished mid-deliberation"));
-            float[] queryEmbedding = embedQuery(job.query());
-            List<ChunkSearchHit> retrieved = documents.findSimilarChunksInDocument(
-                    job.documentId(), queryEmbedding, topSections * topChunksPerSection);
-            List<ChunkSearchHit> topChunks = topByScore(retrieved, topSections * topChunksPerSection);
+
+            List<ChunkSearchHit> topChunks = withSpan("retrieval", retrieveSpan -> {
+                float[] queryEmbedding = embedQuery(job.query());
+                List<ChunkSearchHit> retrieved = documents.findSimilarChunksInDocument(
+                        job.documentId(), queryEmbedding, topSections * topChunksPerSection);
+                List<ChunkSearchHit> top = topByScore(retrieved, topSections * topChunksPerSection);
+                retrieveSpan.tag("anchor.retrieved_chunks", String.valueOf(retrieved.size()));
+                retrieveSpan.tag("anchor.top_chunks", String.valueOf(top.size()));
+                return top;
+            });
 
             // Proposer
             transitionWithEvent(job, JobStatus.PROPOSING);
-            AgentEnvelope proposer = runProposer(job.jobId(), ctx, topChunks, job.query());
+            AgentEnvelope proposer = withSpan("proposer", span -> {
+                span.tag("anchor.evidence_access", EvidenceAccess.FULL_HIERARCHY.name());
+                span.tag("anchor.temperature", String.valueOf(proposerTemp));
+                AgentEnvelope env = runProposer(job.jobId(), ctx, topChunks, job.query());
+                tagAgentResult(span, env);
+                return env;
+            });
             job.setProposer(proposer);
+            jobs.persist(job);
             if (proposer.error() != null) {
                 failJob(job, "Proposer failed: " + proposer.error());
+                parent.tag("anchor.failed_at", "proposer");
                 return;
             }
             stream.emitAgentComplete(job.jobId(), JobEventType.PROPOSER_COMPLETE, proposer.response());
 
             // Critic — macro view only. Blocking call (output is JSON, not worth streaming).
             transitionWithEvent(job, JobStatus.CRITIQUING);
-            AgentEnvelope critic = runCritic(ctx, job.query(), proposer.response());
+            AgentEnvelope critic = withSpan("critic", span -> {
+                span.tag("anchor.evidence_access", EvidenceAccess.MACRO_ONLY.name());
+                span.tag("anchor.temperature", String.valueOf(criticTemp));
+                AgentEnvelope env = runCritic(ctx, job.query(), proposer.response());
+                tagAgentResult(span, env);
+                if (env.challenges() != null) {
+                    span.tag("anchor.critic_challenges", String.valueOf(env.challenges().size()));
+                }
+                return env;
+            });
             job.setCritic(critic);
+            jobs.persist(job);
             stream.emitAgentComplete(job.jobId(), JobEventType.CRITIC_COMPLETE,
                     critic.response() == null ? "(critic failed)" : critic.response());
             // Critic failure isn't fatal — synthesiser can proceed with no challenges.
 
             // Synthesiser — full hierarchy + debate
             transitionWithEvent(job, JobStatus.SYNTHESISING);
-            AgentEnvelope synthesiser = runSynthesiser(job.jobId(), ctx, topChunks, job.query(),
-                    proposer.response(), critic);
+            AgentEnvelope synthesiser = withSpan("synthesiser", span -> {
+                span.tag("anchor.evidence_access", EvidenceAccess.FULL_HIERARCHY_PLUS_DEBATE.name());
+                span.tag("anchor.temperature", String.valueOf(synthTemp));
+                AgentEnvelope env = runSynthesiser(job.jobId(), ctx, topChunks, job.query(),
+                        proposer.response(), critic);
+                tagAgentResult(span, env);
+                return env;
+            });
             job.setSynthesiser(synthesiser);
+            jobs.persist(job);
             if (synthesiser.error() != null) {
                 failJob(job, "Synthesiser failed: " + synthesiser.error());
+                parent.tag("anchor.failed_at", "synthesiser");
                 return;
             }
             stream.emitAgentComplete(job.jobId(), JobEventType.SYNTHESISER_COMPLETE, synthesiser.response());
 
             String finalResponse = extractSynthesiserResponse(synthesiser.response());
             job.complete(finalResponse, Instant.now());
+            jobs.persist(job);
             stream.emitFinal(job.jobId(), finalResponse);
+            parent.tag("anchor.final_response_chars", String.valueOf(finalResponse.length()));
+            terminalOutcome = "completed";
         } catch (Exception e) {
             log.error("Deliberation {} failed", job.jobId(), e);
+            parent.error(e);
             failJob(job, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
+            parent.end();
             stream.close(job.jobId());
+            sample.stop(meters.timer("anchor.deliberation.duration", "outcome", terminalOutcome));
+            meters.counter("anchor.deliberations.completed", "outcome", terminalOutcome).increment();
+        }
+    }
+
+    /**
+     * Run {@code work} inside a child span. Errors inside the work are tagged
+     * on the span before re-throwing so the trace shows where the failure
+     * originated. Span ends in finally — even unchecked exceptions don't
+     * leak open spans into the trace.
+     */
+    private <T> T withSpan(String name, java.util.function.Function<Span, T> work) {
+        Span span = tracer.nextSpan().name(name).start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+            return work.apply(span);
+        } catch (RuntimeException e) {
+            span.error(e);
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+
+    private static void tagAgentResult(Span span, AgentEnvelope env) {
+        if (env.error() != null) {
+            span.tag("anchor.agent_error", env.error());
+        } else if (env.response() != null) {
+            span.tag("anchor.response_chars", String.valueOf(env.response().length()));
         }
     }
 
     private void transitionWithEvent(AskJob job, JobStatus next) {
         job.transition(next);
+        jobs.persist(job);
         stream.emitStatus(job.jobId(), next.name());
     }
 
     private void failJob(AskJob job, String message) {
         job.fail(message, Instant.now());
+        jobs.persist(job);
         stream.emitFailure(job.jobId(), message);
     }
 
@@ -241,18 +330,29 @@ public class AskService {
     // ---- LLM call ----
 
     private String chat(String prompt, double temperature) {
-        try {
+        Span span = tracer.nextSpan().name("llm.chat")
+                .tag("anchor.prompt_chars", String.valueOf(prompt.length()))
+                .tag("anchor.temperature", String.valueOf(temperature))
+                .tag("anchor.streaming", "false")
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             ChatCompletion completion = pools.chatPool()
                     .submit(() -> llm.complete("", prompt, temperature))
                     .get();
-            return completion.content() == null ? "" : completion.content().trim();
+            String content = completion.content() == null ? "" : completion.content().trim();
+            span.tag("anchor.response_chars", String.valueOf(content.length()));
+            return content;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            span.error(e);
             throw new IngestException("Interrupted during deliberation", e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
+            span.error(cause == null ? e : cause);
             if (cause instanceof RuntimeException re) throw re;
             throw new IngestException("Deliberation chat call failed", cause);
+        } finally {
+            span.end();
         }
     }
 
@@ -263,34 +363,54 @@ public class AskService {
      * on [DONE].
      */
     private String chatStreaming(String prompt, double temperature, Consumer<String> tokenHandler) {
-        try {
+        Span span = tracer.nextSpan().name("llm.chat")
+                .tag("anchor.prompt_chars", String.valueOf(prompt.length()))
+                .tag("anchor.temperature", String.valueOf(temperature))
+                .tag("anchor.streaming", "true")
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             ChatCompletion completion = pools.chatPool()
                     .submit(() -> llm.completeStreaming("", prompt, temperature, tokenHandler).get())
                     .get();
-            return completion.content() == null ? "" : completion.content().trim();
+            String content = completion.content() == null ? "" : completion.content().trim();
+            span.tag("anchor.response_chars", String.valueOf(content.length()));
+            return content;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            span.error(e);
             throw new IngestException("Interrupted during deliberation streaming", e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
+            span.error(cause == null ? e : cause);
             if (cause instanceof RuntimeException re) throw re;
             throw new IngestException("Deliberation streaming chat call failed", cause);
+        } finally {
+            span.end();
         }
     }
 
     private float[] embedQuery(String query) {
-        try {
+        Span span = tracer.nextSpan().name("llm.embed")
+                .tag("anchor.input_chars", String.valueOf(query.length()))
+                .start();
+        try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             List<Embedding> embeddings = pools.embeddingPool()
                     .submit(() -> llm.embedBatch(List.of(query)))
                     .get();
-            return embeddings.get(0).vector();
+            float[] vec = embeddings.get(0).vector();
+            span.tag("anchor.dimensions", String.valueOf(vec.length));
+            return vec;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            span.error(e);
             throw new IngestException("Interrupted during query embedding", e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
+            span.error(cause == null ? e : cause);
             if (cause instanceof RuntimeException re) throw re;
             throw new IngestException("Query embedding failed", cause);
+        } finally {
+            span.end();
         }
     }
 

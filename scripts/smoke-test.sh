@@ -11,11 +11,12 @@
 #   scripts/smoke-test.sh /path/to/paper.pdf "your question here"
 #
 # Env (or copy .env.example to .env and edit — auto-sourced below):
-#   LM_STUDIO_BASE_URL       e.g. http://mac-studio.local:1234/v1
-#   LM_STUDIO_CHAT_MODEL     e.g. gemma-3-4b-it
-#   LM_STUDIO_EMBEDDING_MODEL e.g. nomic-embed-text-v1.5
+#   LLM_BASE_URL              e.g. http://mac-studio.local:1234/v1
+#   LLM_CHAT_MODEL            e.g. gemma-3-4b-it
+#   LLM_EMBEDDING_MODEL       e.g. nomic-embed-text-v1.5
+# (LM_STUDIO_* still works as a back-compat fallback.)
 #   ANCHOR_DB_URL            (default jdbc:postgresql://localhost:5433/anchor)
-#   ANCHOR_BASE_URL          (default http://localhost:8080)
+#   ANCHOR_BASE_URL          (default http://localhost:8090)
 #   ANCHOR_SKIP_COMPOSE=1    skip `docker compose up -d postgres`
 #   ANCHOR_SKIP_BOOT=1       skip starting the server (assume it's already running)
 
@@ -34,7 +35,7 @@ fi
 
 PDF_PATH="${1:-}"
 QUERY="${2:-What is the central claim of this paper?}"
-BASE_URL="${ANCHOR_BASE_URL:-http://localhost:8080}"
+BASE_URL="${ANCHOR_BASE_URL:-http://localhost:8090}"
 
 if [[ -z "${PDF_PATH}" ]]; then
   echo "usage: $0 /path/to/paper.pdf [\"question\"]" >&2
@@ -76,10 +77,10 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "${ANCHOR_SKIP_BOOT:-}" != "1" ]]; then
-  # Refuse to start if port 8080 is already taken — otherwise bootRun fails
+  # Refuse to start if port 8090 is already taken — otherwise bootRun fails
   # silently in the background and the script ends up polling a stale server
   # from a previous run, which is genuinely confusing to debug.
-  ANCHOR_PORT="${ANCHOR_PORT:-8080}"
+  ANCHOR_PORT="${ANCHOR_PORT:-8090}"
   if lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "✗ port ${ANCHOR_PORT} is already in use:" >&2
     lsof -nP -iTCP:"${ANCHOR_PORT}" -sTCP:LISTEN >&2
@@ -152,11 +153,40 @@ fi
 # 4. Ingest -------------------------------------------------------------------
 echo "==> 4/5 ingesting ${PDF_PATH}"
 INGEST_BODY="$(jq -n --arg path "${PDF_PATH}" '{source_path:$path}')"
-INGEST_RESPONSE="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+INGEST_ACCEPTED="$(curl -fsS -X POST -H 'Content-Type: application/json' \
   --data "${INGEST_BODY}" "${BASE_URL}/ingest")"
-DOC_ID="$(echo "${INGEST_RESPONSE}" | jq -r '.document_id')"
+INGEST_JOB_ID="$(echo "${INGEST_ACCEPTED}" | jq -r '.job_id')"
+echo "  ingest_job_id=${INGEST_JOB_ID}; polling progress…"
+
+# Ingest is async since v0.3 — server returns 202 immediately and runs the
+# pipeline on the ingest pool. Poll /ingest/jobs/{id} until terminal,
+# rendering the latest phase + percent on each tick (one log line per
+# percent change so we don't spam on slow polls).
+LAST_PCT=-1
+for _ in $(seq 1 1800); do
+  INGEST_JOB="$(curl -fsS "${BASE_URL}/ingest/jobs/${INGEST_JOB_ID}")"
+  INGEST_STATUS="$(echo "${INGEST_JOB}" | jq -r '.status')"
+  PCT="$(echo "${INGEST_JOB}" | jq -r '.percent_complete // 0')"
+  PHASE="$(echo "${INGEST_JOB}" | jq -r '.phase // "?"')"
+  MSG="$(echo "${INGEST_JOB}" | jq -r '.message // ""')"
+  if [[ "${PCT}" != "${LAST_PCT}" ]]; then
+    printf "  [%3d%%] %s — %s\n" "${PCT}" "${PHASE}" "${MSG}"
+    LAST_PCT="${PCT}"
+  fi
+  if [[ "${INGEST_STATUS}" == "COMPLETED" || "${INGEST_STATUS}" == "FAILED" || "${INGEST_STATUS}" == "CANCELLED" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${INGEST_STATUS}" != "COMPLETED" ]]; then
+  echo "✗ ingest ended in ${INGEST_STATUS}:" >&2
+  echo "${INGEST_JOB}" | jq . >&2
+  exit 1
+fi
+DOC_ID="$(echo "${INGEST_JOB}" | jq -r '.document_id')"
 echo "  ✓ ingested document_id=${DOC_ID}"
-echo "${INGEST_RESPONSE}" | jq '{title, chapter_count, section_count, paragraph_count, chunk_count, token_usage}'
+echo "${INGEST_JOB}" | jq '.result | {title, chapter_count, section_count, paragraph_count, chunk_count, token_usage}'
 
 # 5. Ask ----------------------------------------------------------------------
 echo

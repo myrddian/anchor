@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anchor</title>
+  <link rel="stylesheet" href="/anchor.css">
+</head>
+<body>
+  <header>
+    <h1>Anchor</h1>
+    <p class="tagline">Source-grounded chunk validation. Documents-as-databases.</p>
+  </header>
+
+  <div id="token-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="token-prompt-title">
+    <form id="token-form" class="token-card">
+      <h2 id="token-prompt-title">API token required</h2>
+      <p class="token-hint">This Anchor server is configured with <code>ANCHOR_API_TOKEN</code>. Paste the bearer token to continue. It's stored in your browser tab only (sessionStorage) — closing the tab forgets it.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="Bearer token" required spellcheck="false">
+      <p id="token-error" class="token-error hidden"></p>
+      <div class="token-actions">
+        <button type="submit" id="token-submit">Connect</button>
+      </div>
+    </form>
+  </div>
+
+  <main>
+    <form id="upload-form">
+      <label for="upload-file">Add a paper</label>
+      <input id="upload-file" type="file"
+             accept=".pdf,.epub,.docx,.rtf,.html,.htm,.txt,.md,application/pdf,application/epub+zip"
+             required>
+      <button type="submit" id="upload-button">Ingest</button>
+      <p id="upload-status" class="upload-status"></p>
+    </form>
+
+    <form id="ask-form">
+      <label for="document-search">Search documents</label>
+      <input id="document-search" type="search" placeholder="Type to filter by content (semantic) — clear to see all">
+
+      <label for="document">Document</label>
+      <select id="document" required>
+        <option value="">Loading…</option>
+      </select>
+
+      <label for="query">Question</label>
+      <input id="query" type="text" placeholder="e.g. does compound X inhibit enzyme Y?" required>
+
+      <button type="submit" id="ask-button">Ask</button>
+    </form>
+
+    <section id="status-bar" class="hidden">
+      <span class="label">Status</span>
+      <span id="status" class="status-pill">QUEUED</span>
+      <span id="job-id" class="job-id"></span>
+    </section>
+
+    <section class="agents">
+      <article id="proposer-panel" class="agent">
+        <header>
+          <h2>Proposer <span class="evidence-tag">full hierarchy</span></h2>
+          <p class="agent-role">Drafts a thorough first-person answer with full access to chapters, sections, and the most relevant chunks.</p>
+        </header>
+        <div id="proposer-content" class="agent-body"></div>
+      </article>
+
+      <article id="critic-panel" class="agent">
+        <header>
+          <h2>Critic <span class="evidence-tag macro">macro view only</span></h2>
+          <p class="agent-role">Sees only chapter + document summaries. Challenges anything in the proposer's draft that the macro view can't verify.</p>
+        </header>
+        <div id="critic-content" class="agent-body">
+          <ul id="critic-challenges"></ul>
+        </div>
+      </article>
+
+      <article id="synthesiser-panel" class="agent">
+        <header>
+          <h2>Synthesiser <span class="evidence-tag">full hierarchy + debate</span></h2>
+          <p class="agent-role">Sees the proposer's draft, the critic's challenges, and the full hierarchy. Produces the final answer.</p>
+        </header>
+        <div id="synthesiser-content" class="agent-body"></div>
+        <details id="grounding-panel" class="grounding hidden">
+          <summary>Grounding</summary>
+          <pre id="grounding-content"></pre>
+        </details>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      <a href="/actuator/health" target="_blank">/actuator/health</a> ·
+      <a href="https://github.com/myrddian/anchor" target="_blank">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="/anchor.js" defer></script>
+</body>
+</html>

@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class PdfTextExtractor {
 
-    public ExtractedPdf extract(Path pdfPath) throws IOException {
+    public ExtractedDocument extract(Path pdfPath) throws IOException {
         byte[] bytes = Files.readAllBytes(pdfPath);
         String hash = sha256(bytes);
         try (PDDocument doc = Loader.loadPDF(bytes)) {
@@ -31,7 +31,7 @@ public class PdfTextExtractor {
             String text = stripper.getText(doc);
             List<String> outline = collectOutlineTitles(doc.getDocumentCatalog().getDocumentOutline());
             String title = derivedTitle(doc, pdfPath);
-            return new ExtractedPdf(title, hash, text, outline);
+            return new ExtractedDocument(title, hash, text, outline);
         }
     }
 
@@ -65,5 +65,5 @@ public class PdfTextExtractor {
         }
     }
 
-    public record ExtractedPdf(String title, String contentHash, String text, List<String> outlineTopLevel) {}
+    // ExtractedDocument now lives at top-level (shared with TikaTextExtractor).
 }

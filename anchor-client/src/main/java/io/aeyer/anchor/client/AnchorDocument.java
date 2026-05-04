@@ -6,6 +6,8 @@ import io.aeyer.anchor.protocol.ask.JobAcceptedResponse;
 import io.aeyer.anchor.protocol.documents.DocumentDetailResponse;
 import io.aeyer.anchor.protocol.retrieve.RetrieveRequest;
 import io.aeyer.anchor.protocol.retrieve.RetrieveResponse;
+import io.aeyer.anchor.protocol.validate.ValidateQuickRequest;
+import io.aeyer.anchor.protocol.validate.ValidateQuickResponse;
 import io.aeyer.anchor.protocol.validate.ValidateRequest;
 import io.aeyer.anchor.protocol.validate.ValidateResponse;
 import java.util.UUID;
@@ -39,6 +41,17 @@ public final class AnchorDocument {
     public ValidateResponse validate(UUID chunkId, String query) {
         return transport.postJson("/validate",
                 new ValidateRequest(chunkId, query), ValidateResponse.class);
+    }
+
+    /**
+     * Vector-only stance approximation — no LLM call. Two embedding round
+     * trips, returns a topical relevance + heuristic stance score in
+     * [-1, 1]. Use as a pre-filter before {@link #ask(String)}, not as a
+     * substitute for the deliberation.
+     */
+    public ValidateQuickResponse quickValidate(String query) {
+        return transport.postJson("/validate/quick",
+                new ValidateQuickRequest(documentId, query), ValidateQuickResponse.class);
     }
 
     /**

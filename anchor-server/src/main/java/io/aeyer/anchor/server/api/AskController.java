@@ -82,6 +82,7 @@ public class AskController {
             // v0: best-effort cancel — flip status; in-flight model call still completes,
             // result just gets discarded by the orchestrator's terminal-status check.
             job.cancel(Instant.now());
+            jobs.persist(job);
         }
         return ResponseEntity.noContent().build();
     }

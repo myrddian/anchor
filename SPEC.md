@@ -1936,7 +1936,7 @@ The client library is the primary integration path for Java consumers. The HTTP 
 ```java
 // Construction
 var anchor = AnchorClient.builder()
-    .baseUrl("http://localhost:8080")
+    .baseUrl("http://localhost:8090")
     .timeout(Duration.ofSeconds(120))
     .build();
 

@@ -5,9 +5,10 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.aeyer.anchor.client.exceptions.AnchorClientException;
 import io.aeyer.anchor.client.internal.HttpTransport;
 import io.aeyer.anchor.protocol.documents.DocumentListResponse;
+import io.aeyer.anchor.protocol.documents.DocumentSearchResponse;
 import io.aeyer.anchor.protocol.documents.DocumentSummaryResponse;
+import io.aeyer.anchor.protocol.ingest.IngestJobAcceptedResponse;
 import io.aeyer.anchor.protocol.ingest.IngestRequest;
-import io.aeyer.anchor.protocol.ingest.IngestResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -61,8 +62,54 @@ public final class AnchorClient {
         return new AnchorDocument(list.documents().get(0).documentId(), transport);
     }
 
-    public IngestResponse ingest(String sourcePath) {
-        return transport.postJson("/ingest", new IngestRequest(sourcePath), IngestResponse.class);
+    /**
+     * Server-side ingest: hand the server a path it can read from its own
+     * filesystem. Returns immediately with an {@link IngestHandle} — the
+     * pipeline (parse → summarise → embed → persist) takes minutes on a
+     * full book and runs on the server's ingest pool. Poll progress via
+     * {@link IngestHandle#snapshot()} or block via
+     * {@link IngestHandle#awaitCompletion(java.time.Duration)}.
+     */
+    public IngestHandle ingest(String sourcePath) {
+        IngestJobAcceptedResponse accepted = transport.postJson(
+                "/ingest", new IngestRequest(sourcePath), IngestJobAcceptedResponse.class);
+        return new IngestHandle(accepted.jobId(), transport);
+    }
+
+    /**
+     * Upload a local document to the server via multipart, then ingest it.
+     * PDF, EPUB, DOCX, RTF, HTML, plain text — the server dispatches to
+     * PDFBox or Tika based on file extension. Returns an {@link IngestHandle}
+     * for progress polling; same idempotency (re-upload → same content hash
+     * → same stable document_id) as {@link #ingest(String)}.
+     */
+    public IngestHandle ingestUpload(java.nio.file.Path localFile) {
+        IngestJobAcceptedResponse accepted = transport.postFile(
+                "/ingest/upload", localFile, guessContentType(localFile),
+                IngestJobAcceptedResponse.class);
+        return new IngestHandle(accepted.jobId(), transport);
+    }
+
+    private static String guessContentType(java.nio.file.Path file) {
+        String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (name.endsWith(".pdf"))                            return "application/pdf";
+        if (name.endsWith(".epub"))                           return "application/epub+zip";
+        if (name.endsWith(".docx"))                           return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (name.endsWith(".rtf"))                            return "application/rtf";
+        if (name.endsWith(".html") || name.endsWith(".htm")) return "text/html";
+        if (name.endsWith(".txt") || name.endsWith(".md"))   return "text/plain";
+        return "application/octet-stream";
+    }
+
+    /**
+     * Semantic search across documents — ranks by cosine of the query
+     * embedding against each doc's stored summary embedding. Topical
+     * relevance, not stance — for stance use
+     * {@link AnchorDocument#quickValidate(String)} on a single document.
+     */
+    public DocumentSearchResponse searchDocuments(String query, int k) {
+        String path = "/documents/search?q=" + urlEncode(query) + "&k=" + Math.max(1, k);
+        return transport.get(path, DocumentSearchResponse.class);
     }
 
     HttpTransport transport() { return transport; }
@@ -72,17 +119,20 @@ public final class AnchorClient {
     }
 
     public static final class Builder {
-        private String baseUrl = "http://localhost:8080";
+        private String baseUrl = "http://localhost:8090";
         private Duration timeout = Duration.ofSeconds(60);
         private ObjectMapper mapper;
+        private String apiToken;
 
         public Builder baseUrl(String baseUrl) { this.baseUrl = baseUrl; return this; }
         public Builder timeout(Duration timeout) { this.timeout = timeout; return this; }
         public Builder objectMapper(ObjectMapper mapper) { this.mapper = mapper; return this; }
+        /** Bearer token sent as {@code Authorization: Bearer <token>} on every request. Null/blank disables auth. */
+        public Builder apiToken(String apiToken) { this.apiToken = apiToken; return this; }
 
         public AnchorClient build() {
             ObjectMapper m = mapper != null ? mapper : defaultMapper();
-            return new AnchorClient(new HttpTransport(baseUrl, timeout, m));
+            return new AnchorClient(new HttpTransport(baseUrl, timeout, m, apiToken));
         }
 
         private ObjectMapper defaultMapper() {

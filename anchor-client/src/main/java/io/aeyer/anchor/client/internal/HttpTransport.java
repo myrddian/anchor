@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.aeyer.anchor.client.exceptions.AnchorClientException;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -23,18 +25,32 @@ public final class HttpTransport {
     private static final MediaType JSON = MediaType.get("application/json");
 
     private final String baseUrl;
+    private final String apiToken;
     private final OkHttpClient http;
     private final ObjectMapper mapper;
 
     public HttpTransport(String baseUrl, Duration timeout, ObjectMapper mapper) {
+        this(baseUrl, timeout, mapper, null);
+    }
+
+    public HttpTransport(String baseUrl, Duration timeout, ObjectMapper mapper, String apiToken) {
         this.baseUrl = stripTrailingSlash(baseUrl);
         this.mapper = mapper;
+        this.apiToken = apiToken;
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .writeTimeout(timeout)
                 .readTimeout(timeout)
                 .retryOnConnectionFailure(true)
                 .build();
+    }
+
+    /** Stamps the Authorization header onto every request when configured. */
+    private Request.Builder authed(Request.Builder builder) {
+        if (apiToken != null && !apiToken.isBlank()) {
+            builder.header("Authorization", "Bearer " + apiToken);
+        }
+        return builder;
     }
 
     public OkHttpClient httpClient() { return http; }
@@ -44,25 +60,45 @@ public final class HttpTransport {
     public String baseUrl() { return baseUrl; }
 
     public <T> T get(String path, Class<T> type) {
-        return parse(execute(new Request.Builder().url(baseUrl + path).get().build(), path), type);
+        return parse(execute(authed(new Request.Builder().url(baseUrl + path).get()).build(), path), type);
     }
 
     public <T> T get(String path, TypeReference<T> type) {
-        return parse(execute(new Request.Builder().url(baseUrl + path).get().build(), path), type);
+        return parse(execute(authed(new Request.Builder().url(baseUrl + path).get()).build(), path), type);
     }
 
     public <T> T postJson(String path, Object body, Class<T> type) {
-        Request request = new Request.Builder()
+        Request request = authed(new Request.Builder()
                 .url(baseUrl + path)
-                .post(RequestBody.create(toJson(body), JSON))
+                .post(RequestBody.create(toJson(body), JSON)))
                 .build();
         return parse(execute(request, path), type);
     }
 
     public void delete(String path) {
-        Request request = new Request.Builder().url(baseUrl + path).delete().build();
+        Request request = authed(new Request.Builder().url(baseUrl + path).delete()).build();
         execute(request, path);
     }
+
+    /**
+     * Multipart upload of a single file under the form field {@code file}.
+     * Used by the SDK's {@code ingestUpload} so a CLI / IDE caller can hand
+     * the server a local PDF without needing it to be on the server's
+     * filesystem.
+     */
+    public <T> T postFile(String path, Path file, String contentType, Class<T> type) {
+        MediaType media = MediaType.parse(contentType == null ? "application/octet-stream" : contentType);
+        RequestBody fileBody = RequestBody.create(file.toFile(), media);
+        MultipartBody multipart = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", file.getFileName().toString(), fileBody)
+                .build();
+        Request request = authed(new Request.Builder().url(baseUrl + path).post(multipart)).build();
+        return parse(execute(request, path), type);
+    }
+
+    /** Exposes the configured token for SSE subscriptions that build their own requests. */
+    public String apiToken() { return apiToken; }
 
     private String execute(Request request, String path) {
         try (Response response = http.newCall(request).execute()) {

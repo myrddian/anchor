@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Type;
 import org.hibernate.type.SqlTypes;
 
 @Entity
@@ -40,6 +41,16 @@ public class DocumentDbo {
     @Column(nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> metadata;
 
+    /**
+     * Embedding of {@link #docSummary}. Populated by the ingest pipeline; for
+     * documents migrated in from before V2 it's filled lazily by
+     * SummaryEmbeddingBackfill at startup. Null only briefly between V2
+     * migration and first backfill pass.
+     */
+    @Type(PgVectorType.class)
+    @Column(name = "summary_embedding", columnDefinition = "vector(768)")
+    private float[] summaryEmbedding;
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
 
@@ -60,4 +71,7 @@ public class DocumentDbo {
 
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+
+    public float[] getSummaryEmbedding() { return summaryEmbedding; }
+    public void setSummaryEmbedding(float[] summaryEmbedding) { this.summaryEmbedding = summaryEmbedding; }
 }

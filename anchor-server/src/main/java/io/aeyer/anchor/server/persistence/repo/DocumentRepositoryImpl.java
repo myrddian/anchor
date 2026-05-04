@@ -248,6 +248,43 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                 args.toArray());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentSearchRow> searchDocumentsBySummary(float[] queryEmbedding, int limit) {
+        String vectorLiteral = toPgVectorText(queryEmbedding);
+        String sql = """
+                SELECT id, title, source_path, doc_summary, ingested_at,
+                       1 - (summary_embedding <=> ?::vector) AS similarity
+                FROM documents
+                WHERE summary_embedding IS NOT NULL
+                ORDER BY summary_embedding <=> ?::vector
+                LIMIT ?
+                """;
+        return jdbc.query(sql, (rs, rowNum) -> new DocumentSearchRow(
+                        (UUID) rs.getObject("id"),
+                        rs.getString("title"),
+                        rs.getString("source_path"),
+                        rs.getString("doc_summary"),
+                        rs.getTimestamp("ingested_at").toInstant(),
+                        rs.getDouble("similarity")),
+                vectorLiteral, vectorLiteral, Math.max(1, Math.min(200, limit)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Double> documentSummaryCosine(UUID documentId, float[] queryEmbedding) {
+        String vectorLiteral = toPgVectorText(queryEmbedding);
+        String sql = """
+                SELECT 1 - (summary_embedding <=> ?::vector) AS similarity
+                FROM documents
+                WHERE id = ? AND summary_embedding IS NOT NULL
+                """;
+        List<Double> result = jdbc.query(sql,
+                (rs, rowNum) -> rs.getDouble("similarity"),
+                vectorLiteral, documentId);
+        return result.isEmpty() ? Optional.empty() : Optional.of(result.get(0));
+    }
+
     private static String toPgVectorText(float[] v) {
         StringBuilder sb = new StringBuilder(v.length * 6 + 2);
         sb.append('[');

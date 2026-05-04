@@ -1,6 +1,13 @@
 spring:
   application:
     name: anchor-server
+  servlet:
+    multipart:
+      # PDFs of papers run a few MB; the default 1MB is too tight. 50MB covers
+      # textbook chapters and most preprints without inviting abuse on a
+      # local-only service.
+      max-file-size: 50MB
+      max-request-size: 50MB
   datasource:
     # Default points at the docker-compose stack which binds host 5433 to
     # avoid collision with other local postgres (e.g. VoidCore on 5432).
@@ -19,9 +26,15 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  web:
+    resources:
+      # Lockstep with anchor.web-ui.enabled — turning off the UI 404s the
+      # static asset handler so /, /index.html, /anchor.js, /anchor.css don't
+      # resolve at all on API-only deployments.
+      add-mappings: ${ANCHOR_WEB_UI_ENABLED:true}
 
 server:
-  port: ${ANCHOR_PORT:8080}
+  port: ${ANCHOR_PORT:8090}
 
 management:
   endpoints:
@@ -34,16 +47,33 @@ management:
       # database probe details so misconfiguration is obvious without log diving.
       show-details: always
       show-components: always
+  tracing:
+    # Sample everything in dev — the deliberation flow is the interesting bit
+    # and it's slow enough that nothing breaks under full sampling. Drop to
+    # ~0.1 in production via management.tracing.sampling.probability.
+    sampling:
+      probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      # OTLP/HTTP — works against Tempo, Jaeger (with HTTP receiver), Honeycomb,
+      # Datadog Agent, etc. Default points at the local-collector convention;
+      # exporter logs + drops if nothing's listening, doesn't fail boot.
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
-# LM Studio (OpenAI-compatible). Hosted on the Mac Studio in dev.
+# Inference provider. Anchor speaks the OpenAI chat-completions and embeddings
+# wire format — works with LM Studio (the dev default), real OpenAI, vLLM,
+# llama.cpp's HTTP server, ollama's OpenAI-compat shim, anything that follows
+# the same shape. The env vars are named generically; LM_STUDIO_* still
+# resolves as a back-compat fallback so existing .env files keep working.
 lmstudio:
-  base-url: ${LM_STUDIO_BASE_URL:http://mac-studio.local:1234/v1}
-  chat-model: ${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}
-  embedding-model: ${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}
+  base-url: ${LLM_BASE_URL:${LM_STUDIO_BASE_URL:http://mac-studio.local:1234/v1}}
+  chat-model: ${LLM_CHAT_MODEL:${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}}
+  embedding-model: ${LLM_EMBEDDING_MODEL:${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}}
   embedding-dim: 768
   # Bearer token for the OpenAI-compatible endpoint. Empty for vanilla local
-  # LM Studio; set when pointing at a provider that requires auth (real OpenAI,
-  # vLLM with auth, Anthropic-compat proxy, etc.).
+  # LM Studio; set when pointing at a provider that requires auth. Kept under
+  # the LM_STUDIO_API_KEY name on purpose — Anthropic vs OpenAI key semantics
+  # diverge enough that a generic name would invite confusion.
   api-key: ${LM_STUDIO_API_KEY:}
   timeouts:
     blocking-seconds: 60
@@ -74,6 +104,35 @@ jobs:
 ingest:
   chunk-target-tokens: 300
   abstract-min-words: 100
+
+# Where browser-uploaded PDFs land before they're parsed. Per-upload UUID
+# subdirs are created here automatically. Override with ANCHOR_UPLOAD_DIR.
+anchor:
+  upload-dir: ${ANCHOR_UPLOAD_DIR:${user.home}/.anchor/uploads}
+  # Bearer token enforced on every request when non-empty. Empty default keeps
+  # the dev / single-host workflow open; set ANCHOR_API_TOKEN before exposing
+  # the service beyond localhost. See SecurityConfig for exempt paths.
+  api-token: ${ANCHOR_API_TOKEN:}
+  # Single-page browser UI. On by default for the dev / chemist demo workflow;
+  # set ANCHOR_WEB_UI_ENABLED=false on API-only deployments. When this is on AND
+  # api-token is set, the UI shows a token-prompt screen on load and attaches
+  # the bearer to every request including the deliberation stream.
+  web-ui:
+    enabled: ${ANCHOR_WEB_UI_ENABLED:true}
+
+# OpenAPI / Swagger UI. Enabled in v0 because the spec is the contract — useful
+# for SDK consumers, integrators, and the curl-the-API audience. Set
+# ANCHOR_OPENAPI_ENABLED=false to drop both endpoints on hardened deployments.
+# Paths are the springdoc defaults: spec at /v3/api-docs, UI at
+# /swagger-ui/index.html (also reachable via the /swagger-ui.html alias).
+springdoc:
+  api-docs:
+    enabled: ${ANCHOR_OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${ANCHOR_OPENAPI_ENABLED:true}
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
 
 # Ask deliberation defaults.
 ask:

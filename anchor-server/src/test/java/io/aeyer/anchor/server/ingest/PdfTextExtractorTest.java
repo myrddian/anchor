@@ -2,7 +2,7 @@ package io.aeyer.anchor.server.ingest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.aeyer.anchor.server.ingest.PdfTextExtractor.ExtractedPdf;
+import io.aeyer.anchor.server.ingest.ExtractedDocument;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,7 +46,7 @@ class PdfTextExtractorTest {
             doc.save(pdfPath.toFile());
         }
 
-        ExtractedPdf extracted = extractor.extract(pdfPath);
+        ExtractedDocument extracted = extractor.extract(pdfPath);
 
         assertThat(extracted.text()).contains("Foundations").contains("Methods");
         assertThat(extracted.outlineTopLevel()).containsExactly("Foundations", "Methods");
@@ -67,7 +67,7 @@ class PdfTextExtractorTest {
             doc.save(pdfPath.toFile());
         }
 
-        ExtractedPdf extracted = extractor.extract(pdfPath);
+        ExtractedDocument extracted = extractor.extract(pdfPath);
 
         assertThat(extracted.title()).isEqualTo("my chemistry paper");
     }

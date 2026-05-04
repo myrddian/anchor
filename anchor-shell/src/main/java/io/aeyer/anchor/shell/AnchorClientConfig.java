@@ -11,11 +11,13 @@ public class AnchorClientConfig {
 
     @Bean
     public AnchorClient anchorClient(
-            @Value("${anchor.base-url:http://localhost:8080}") String baseUrl,
-            @Value("${anchor.timeout-seconds:120}") long timeoutSeconds) {
+            @Value("${anchor.base-url:http://localhost:8090}") String baseUrl,
+            @Value("${anchor.timeout-seconds:120}") long timeoutSeconds,
+            @Value("${anchor.api-token:}") String apiToken) {
         return AnchorClient.builder()
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(timeoutSeconds))
+                .apiToken(apiToken)
                 .build();
     }
 }

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same PR/branch — saves CI minutes when a
+# branch gets pushed to multiple times in quick succession. Both context
+# expressions here (github.workflow, github.ref) are server-controlled,
+# not user-supplied, so injection is not a concern.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build + test (with pgvector)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Bring up pgvector exactly as docker-compose.yml does, but on the
+    # standard 5432 inside the runner network. The integration suite probes
+    # localhost:5433 by default; we override via ANCHOR_TEST_POSTGRES_URL
+    # below so it picks up the service container instead.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: anchor
+          POSTGRES_USER: anchor
+          POSTGRES_PASSWORD: anchor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anchor -d anchor"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle (with build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        # All values here are literals or repository secrets — no untrusted
+        # PR/issue/commit text reaches the shell.
+        env:
+          ANCHOR_DB_URL: jdbc:postgresql://localhost:5432/anchor
+          ANCHOR_TEST_POSTGRES_URL: jdbc:postgresql://localhost:5432/anchor
+          ANCHOR_DB_USER: anchor
+          ANCHOR_DB_PASSWORD: anchor
+        run: ./gradlew --no-daemon test
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
+
+  python-sdk:
+    name: python sdk syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e anchor-client-python
+      - run: python -c "import anchor_client; print(anchor_client.__version__)"
+
+  node-sdk:
+    name: node sdk syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - working-directory: anchor-client-node
+        run: |
+          node --check src/index.js
+          node -e "import('./src/index.js').then(m => console.log(Object.keys(m).sort().join(',')))"

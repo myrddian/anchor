@@ -86,6 +86,11 @@ class Phase3AskIntegrationTest {
     private MockMvc mvc;
     private UUID seededDocumentId;
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        if (seededDocumentId != null) documents.deleteById(seededDocumentId);
+    }
+
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(webApp).build();
