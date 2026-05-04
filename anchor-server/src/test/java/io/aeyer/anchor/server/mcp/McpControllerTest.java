@@ -42,7 +42,8 @@ class McpControllerTest {
                 mock(RetrieveController.class),
                 mock(ValidateController.class),
                 mock(AskService.class),
-                mock(JobStore.class));
+                mock(JobStore.class),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         McpController controller = new McpController(mapper, registry, "anchor-server");
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
     }

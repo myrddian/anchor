@@ -1,0 +1,23 @@
+# Prometheus scrape config for Anchor's local observability stack.
+# Brought up by `docker compose --profile observability up`.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Anchor exposes /actuator/prometheus via spring-boot-actuator. Two targets
+  # so the same prometheus container works for either deployment shape:
+  #
+  # - host.docker.internal:8090 — when you run `./gradlew :anchor-server:bootRun`
+  #   on the host JVM (the more common dev workflow).
+  # - anchor-server:8090         — when you bring up the full stack with
+  #   `docker compose --profile app --profile observability up`.
+  #
+  # Whichever target is unreachable shows up as DOWN in /targets — harmless.
+  - job_name: anchor-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8090', 'anchor-server:8090']
+        labels:
+          service: anchor-server

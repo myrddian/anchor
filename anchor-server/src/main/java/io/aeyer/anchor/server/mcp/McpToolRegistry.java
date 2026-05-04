@@ -21,6 +21,8 @@ import io.aeyer.anchor.server.jobs.AskJob;
 import io.aeyer.anchor.server.jobs.JobStore;
 import io.aeyer.anchor.server.service.AskService;
 import io.aeyer.anchor.server.service.IngestException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -63,6 +65,7 @@ public class McpToolRegistry {
     private final ValidateController validateController;
     private final AskService askService;
     private final JobStore jobs;
+    private final MeterRegistry meters;
 
     private final Map<String, ToolHandler> handlers = new LinkedHashMap<>();
     private final List<McpProtocol.ToolDefinition> definitions = new ArrayList<>();
@@ -72,13 +75,15 @@ public class McpToolRegistry {
                            RetrieveController retrieveController,
                            ValidateController validateController,
                            AskService askService,
-                           JobStore jobs) {
+                           JobStore jobs,
+                           MeterRegistry meters) {
         this.mapper = mapper;
         this.documentController = documentController;
         this.retrieveController = retrieveController;
         this.validateController = validateController;
         this.askService = askService;
         this.jobs = jobs;
+        this.meters = meters;
         register();
     }
 
@@ -90,19 +95,30 @@ public class McpToolRegistry {
     public McpProtocol.ToolCallResult call(String name, JsonNode arguments) {
         ToolHandler handler = handlers.get(name);
         if (handler == null) {
+            meters.counter("anchor.mcp.tool.calls", "tool", "unknown", "outcome", "unknown_tool").increment();
             return McpProtocol.ToolCallResult.error("Unknown tool: " + name);
         }
+        Timer.Sample sample = Timer.start(meters);
+        String outcome = "ok";
         try {
             JsonNode args = arguments == null ? mapper.createObjectNode() : arguments;
-            return handler.call(args);
+            McpProtocol.ToolCallResult result = handler.call(args);
+            if (Boolean.TRUE.equals(result.isError())) outcome = "tool_error";
+            return result;
         } catch (IllegalArgumentException bad) {
+            outcome = "invalid_argument";
             return McpProtocol.ToolCallResult.error("Invalid argument: " + bad.getMessage());
         } catch (IngestException notFound) {
+            outcome = "not_found";
             return McpProtocol.ToolCallResult.error(notFound.getMessage());
         } catch (RuntimeException e) {
+            outcome = "exception";
             log.warn("Tool '{}' failed", name, e);
             return McpProtocol.ToolCallResult.error("Tool failed: "
                     + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        } finally {
+            meters.counter("anchor.mcp.tool.calls", "tool", name, "outcome", outcome).increment();
+            sample.stop(meters.timer("anchor.mcp.tool.duration", "tool", name, "outcome", outcome));
         }
     }
 

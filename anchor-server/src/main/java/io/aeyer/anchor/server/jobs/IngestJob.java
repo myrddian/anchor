@@ -21,6 +21,7 @@ public class IngestJob {
 
     private final UUID jobId;
     private final String sourcePath;
+    private final String contentHash;     // SHA-256 of file bytes; key for cross-replica dedup
     private final Instant startedAt;
     private volatile Instant updatedAt;
     private volatile Instant completedAt;
@@ -34,8 +35,13 @@ public class IngestJob {
     private volatile IngestService.IngestResult result;
 
     public IngestJob(UUID jobId, String sourcePath, Instant startedAt) {
+        this(jobId, sourcePath, null, startedAt);
+    }
+
+    public IngestJob(UUID jobId, String sourcePath, String contentHash, Instant startedAt) {
         this.jobId = jobId;
         this.sourcePath = sourcePath;
+        this.contentHash = contentHash;
         this.startedAt = startedAt;
         this.updatedAt = startedAt;
         this.status = IngestJobStatus.QUEUED;
@@ -45,6 +51,7 @@ public class IngestJob {
 
     public UUID jobId() { return jobId; }
     public String sourcePath() { return sourcePath; }
+    public String contentHash() { return contentHash; }
     public Instant startedAt() { return startedAt; }
     public Instant updatedAt() { return updatedAt; }
     public Instant completedAt() { return completedAt; }

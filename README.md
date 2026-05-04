@@ -119,6 +119,13 @@ Or run the whole stack in containers — server + postgres together:
 docker compose --profile app up --build
 ```
 
+To see traces + metrics locally, layer in Jaeger and Prometheus:
+
+```bash
+docker compose --profile observability up           # Jaeger :16686, Prometheus :9090
+# or all together: --profile app --profile observability
+```
+
 Then drive the API directly:
 
 ```bash

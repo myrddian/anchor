@@ -16,6 +16,8 @@ import io.aeyer.anchor.server.persistence.repo.DocumentRepository;
 import io.aeyer.anchor.server.persistence.repo.DocumentRepositoryDomain.ChunkSearchHit;
 import io.aeyer.anchor.server.sse.JobStreamRegistry;
 import io.aeyer.anchor.server.workers.WorkerPools;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import jakarta.annotation.PostConstruct;
@@ -63,6 +65,7 @@ public class AskService {
     private final JobStreamRegistry stream;
     private final SynthesiserOutputParser synthParser;
     private final Tracer tracer;
+    private final MeterRegistry meters;
 
     @Value("classpath:prompts/ask-proposer.txt") Resource proposerPrompt;
     @Value("classpath:prompts/ask-critic.txt") Resource criticPrompt;
@@ -80,7 +83,7 @@ public class AskService {
 
     public AskService(JobStore jobs, DocumentRepository documents,
                       LMStudioClient llm, WorkerPools pools, ObjectMapper mapper,
-                      JobStreamRegistry stream, Tracer tracer) {
+                      JobStreamRegistry stream, Tracer tracer, MeterRegistry meters) {
         this.jobs = jobs;
         this.documents = documents;
         this.llm = llm;
@@ -89,6 +92,7 @@ public class AskService {
         this.stream = stream;
         this.synthParser = new SynthesiserOutputParser(mapper);
         this.tracer = tracer;
+        this.meters = meters;
     }
 
     @PostConstruct
@@ -120,6 +124,9 @@ public class AskService {
         // pool) thread; LLM calls are submitted to chat pool but the
         // orchestrator blocks on .get() so the latency is captured here
         // without needing cross-thread context propagation.
+        meters.counter("anchor.deliberations.started").increment();
+        Timer.Sample sample = Timer.start(meters);
+        String terminalOutcome = "failed";  // overwritten on success/cancel
         Span parent = tracer.nextSpan().name("deliberation")
                 .tag("anchor.job_id", job.jobId().toString())
                 .tag("anchor.document_id", job.documentId().toString())
@@ -199,6 +206,7 @@ public class AskService {
             jobs.persist(job);
             stream.emitFinal(job.jobId(), finalResponse);
             parent.tag("anchor.final_response_chars", String.valueOf(finalResponse.length()));
+            terminalOutcome = "completed";
         } catch (Exception e) {
             log.error("Deliberation {} failed", job.jobId(), e);
             parent.error(e);
@@ -206,6 +214,8 @@ public class AskService {
         } finally {
             parent.end();
             stream.close(job.jobId());
+            sample.stop(meters.timer("anchor.deliberation.duration", "outcome", terminalOutcome));
+            meters.counter("anchor.deliberations.completed", "outcome", terminalOutcome).increment();
         }
     }
 

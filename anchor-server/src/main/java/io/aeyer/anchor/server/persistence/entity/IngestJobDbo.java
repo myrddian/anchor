@@ -68,6 +68,15 @@ public class IngestJobDbo {
     @Column(columnDefinition = "TEXT")
     private String error;
 
+    /**
+     * SHA-256 of file bytes. Cross-replica dedup key — see V4__ingest_dedup.sql:
+     * a unique partial index on this column WHERE status NOT IN terminal makes
+     * concurrent inserts of the same in-flight content collide on Postgres,
+     * which the runner catches and converges on the existing job.
+     */
+    @Column(name = "content_hash", columnDefinition = "TEXT")
+    private String contentHash;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private IngestService.IngestResult result;
@@ -110,4 +119,7 @@ public class IngestJobDbo {
 
     public IngestService.IngestResult getResult() { return result; }
     public void setResult(IngestService.IngestResult result) { this.result = result; }
+
+    public String getContentHash() { return contentHash; }
+    public void setContentHash(String contentHash) { this.contentHash = contentHash; }
 }

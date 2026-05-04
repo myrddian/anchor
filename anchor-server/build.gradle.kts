@@ -26,6 +26,9 @@ dependencies {
     // Honeycomb, Datadog, …). Default endpoint is localhost:4318 over HTTP;
     // when nothing's listening the exporter logs and drops, doesn't crash.
     implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    // Prometheus registry — turns Micrometer counters/timers into the
+    // /actuator/prometheus text format that prom servers scrape.
+    implementation("io.micrometer:micrometer-registry-prometheus")
 
     implementation("org.flywaydb:flyway-core:$flywayVersion")
     implementation("org.flywaydb:flyway-database-postgresql:$flywayVersion")

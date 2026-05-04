@@ -73,13 +73,31 @@ public class IngestJobStore {
         }
     }
 
-    /** Insert + initial persist. Subsequent transitions go through {@link #persist}. */
+    /**
+     * Insert + initial persist. Throws on DB write failure — in particular,
+     * the V4 unique-partial-index violation when another in-flight job already
+     * owns this content_hash. Callers (IngestJobRunner) catch the exception
+     * and converge on the winning job. The in-memory map is rolled back if
+     * the persist fails so we don't keep an orphan with no DB row.
+     */
+    @Transactional
     public void put(IngestJob job) {
         jobs.put(job.jobId(), job);
-        persist(job);
+        try {
+            repository.save(toDbo(job));
+        } catch (RuntimeException e) {
+            jobs.remove(job.jobId());
+            throw e;
+        }
     }
 
-    /** Write the job's current state through to Postgres. Best-effort — log on failure. */
+    /**
+     * Write the job's current state through to Postgres. Best-effort — log on
+     * failure. Used for ongoing state-update writes (status transitions,
+     * progress reports, terminal completion) where a transient DB hiccup
+     * shouldn't crash the orchestrator. Initial inserts go through
+     * {@link #put} which DOES throw.
+     */
     @Transactional
     public void persist(IngestJob job) {
         try {
@@ -91,6 +109,23 @@ public class IngestJobStore {
 
     public Optional<IngestJob> get(UUID jobId) {
         return Optional.ofNullable(jobs.get(jobId));
+    }
+
+    /**
+     * Cross-replica dedup lookup. Hits the DB rather than the in-memory map
+     * because the whole point is to converge across processes — the
+     * in-memory map only sees jobs born locally.
+     */
+    @Transactional(readOnly = true)
+    public Optional<IngestJob> findActiveByContentHash(String contentHash) {
+        if (contentHash == null) return Optional.empty();
+        return repository.findActiveByContentHash(contentHash, TERMINAL)
+                .map(dbo -> {
+                    // Prefer the in-memory copy if present (live mutable state),
+                    // otherwise hydrate from the DB row.
+                    IngestJob inMem = jobs.get(dbo.getJobId());
+                    return inMem != null ? inMem : fromDbo(dbo);
+                });
     }
 
     public void remove(UUID jobId) {
@@ -129,6 +164,7 @@ public class IngestJobStore {
         IngestJobDbo dbo = new IngestJobDbo();
         dbo.setJobId(job.jobId());
         dbo.setSourcePath(job.sourcePath());
+        dbo.setContentHash(job.contentHash());
         dbo.setStatus(job.status());
         dbo.setPhase(job.phase());
         dbo.setPercentComplete(job.percentComplete());
@@ -144,7 +180,8 @@ public class IngestJobStore {
     }
 
     private static IngestJob fromDbo(IngestJobDbo dbo) {
-        IngestJob job = new IngestJob(dbo.getJobId(), dbo.getSourcePath(), dbo.getStartedAt());
+        IngestJob job = new IngestJob(dbo.getJobId(), dbo.getSourcePath(),
+                dbo.getContentHash(), dbo.getStartedAt());
         // Re-apply the persisted state by walking the same mutators the live
         // path uses — keeps the in-memory and DB shapes consistent.
         if (dbo.getDocumentId() != null) {

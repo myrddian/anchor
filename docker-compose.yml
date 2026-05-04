@@ -58,6 +58,35 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # Observability stack — opt-in via `docker compose --profile observability up`.
+  # Brings up Jaeger (traces) and Prometheus (metrics) so you can see Anchor's
+  # spans + counters without standing up a full collector.
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: anchor-jaeger
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI: http://localhost:16686
+      - "4318:4318"    # OTLP/HTTP — anchor-server's default OTEL_EXPORTER_OTLP_ENDPOINT
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: anchor-prometheus
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Lets the prometheus scrape job reach the host JVM (gradle bootRun)
+      # via host.docker.internal — when running anchor-server in-container,
+      # the same alias resolves to the right thing on the docker network.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   anchor-postgres-data:
   anchor-uploads:
