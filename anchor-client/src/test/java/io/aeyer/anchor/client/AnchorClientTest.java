@@ -225,4 +225,31 @@ class AnchorClientTest {
         server.enqueue(new MockResponse().setResponseCode(404).setBody("not found"));
         assertThrows(AnchorClientException.class, () -> client.listDocuments());
     }
+
+    @org.junit.jupiter.api.Test
+    void ingest_upload_posts_multipart_form_with_file_field(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        UUID docId = UUID.randomUUID();
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"document_id":"%s","title":"Smith2024","source_path":"/uploads/x/Smith2024.pdf",
+                         "chapter_count":1,"section_count":1,"paragraph_count":1,"chunk_count":1,
+                         "ingested_at":"2026-05-04T00:00:00Z",
+                         "token_usage":{"summary_input_tokens":1,"summary_output_tokens":2,"embedding_inputs":3}}
+                        """.formatted(docId)));
+        java.nio.file.Path local = tempDir.resolve("Smith2024.pdf");
+        java.nio.file.Files.write(local, "%PDF-1.4 fake".getBytes());
+
+        IngestResponse response = client.ingestUpload(local);
+
+        assertEquals(docId, response.documentId());
+        RecordedRequest req = server.takeRequest();
+        assertEquals("/ingest/upload", req.getPath());
+        assertTrue(req.getHeader("Content-Type").startsWith("multipart/form-data"),
+                "expected multipart content-type, got " + req.getHeader("Content-Type"));
+        String body = req.getBody().readUtf8();
+        assertTrue(body.contains("name=\"file\""), "multipart body should have a file field");
+        assertTrue(body.contains("filename=\"Smith2024.pdf\""),
+                "filename should be preserved in the form-data part");
+    }
 }

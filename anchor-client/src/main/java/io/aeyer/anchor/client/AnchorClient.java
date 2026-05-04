@@ -61,8 +61,23 @@ public final class AnchorClient {
         return new AnchorDocument(list.documents().get(0).documentId(), transport);
     }
 
+    /**
+     * Server-side ingest: hand the server a path it can read from its own
+     * filesystem. Use this for automation / scripts on the same host. For a
+     * client that has the file but not server filesystem access, use
+     * {@link #ingestUpload(java.nio.file.Path)}.
+     */
     public IngestResponse ingest(String sourcePath) {
         return transport.postJson("/ingest", new IngestRequest(sourcePath), IngestResponse.class);
+    }
+
+    /**
+     * Upload a local PDF to the server via multipart, then ingest it. Same
+     * pipeline + same idempotency (re-upload → same content hash → same
+     * stable document_id) as {@link #ingest(String)}.
+     */
+    public IngestResponse ingestUpload(java.nio.file.Path localFile) {
+        return transport.postFile("/ingest/upload", localFile, "application/pdf", IngestResponse.class);
     }
 
     HttpTransport transport() { return transport; }

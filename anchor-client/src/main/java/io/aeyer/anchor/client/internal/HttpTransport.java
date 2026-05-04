@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.aeyer.anchor.client.exceptions.AnchorClientException;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -62,6 +64,23 @@ public final class HttpTransport {
     public void delete(String path) {
         Request request = new Request.Builder().url(baseUrl + path).delete().build();
         execute(request, path);
+    }
+
+    /**
+     * Multipart upload of a single file under the form field {@code file}.
+     * Used by the SDK's {@code ingestUpload} so a CLI / IDE caller can hand
+     * the server a local PDF without needing it to be on the server's
+     * filesystem.
+     */
+    public <T> T postFile(String path, Path file, String contentType, Class<T> type) {
+        MediaType media = MediaType.parse(contentType == null ? "application/octet-stream" : contentType);
+        RequestBody fileBody = RequestBody.create(file.toFile(), media);
+        MultipartBody multipart = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", file.getFileName().toString(), fileBody)
+                .build();
+        Request request = new Request.Builder().url(baseUrl + path).post(multipart).build();
+        return parse(execute(request, path), type);
     }
 
     private String execute(Request request, String path) {

@@ -36,10 +36,16 @@ public class AnchorCommands {
         this.state = state;
     }
 
-    @ShellMethod(key = "ingest", value = "Ingest a PDF at the given server-side path.")
-    public String ingest(@ShellOption(help = "Server-readable path to the PDF") String path) {
-        IngestResponse response = client.ingest(path);
-        return "Ingested " + response.title() + " (id=" + response.documentId()
+    @ShellMethod(key = "ingest",
+            value = "Ingest a PDF. Local file → uploaded; otherwise treated as a server-side path.")
+    public String ingest(@ShellOption(help = "Local PDF path, or a path the server can read") String path) {
+        java.nio.file.Path local = java.nio.file.Path.of(path);
+        boolean isLocal = java.nio.file.Files.isRegularFile(local);
+        IngestResponse response = isLocal
+                ? client.ingestUpload(local)
+                : client.ingest(path);
+        return "Ingested " + (isLocal ? "(uploaded) " : "(server-path) ")
+                + response.title() + " (id=" + response.documentId()
                 + ", chapters=" + response.chapterCount()
                 + ", chunks=" + response.chunkCount() + ")";
     }
