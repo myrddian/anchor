@@ -7,6 +7,10 @@ const els = {
   document: $("document"),
   query: $("query"),
   button: $("ask-button"),
+  uploadForm: $("upload-form"),
+  uploadFile: $("upload-file"),
+  uploadButton: $("upload-button"),
+  uploadStatus: $("upload-status"),
   statusBar: $("status-bar"),
   status: $("status"),
   jobId: $("job-id"),
@@ -238,6 +242,50 @@ els.form.addEventListener("submit", (event) => {
   const query = els.query.value.trim();
   if (!documentId || !query) return;
   startAsk(documentId, query);
+});
+
+// ---- Upload form ----------------------------------------------------------
+
+function setUploadStatus(message, kind) {
+  els.uploadStatus.textContent = message || "";
+  els.uploadStatus.classList.remove("ok", "err");
+  if (kind) els.uploadStatus.classList.add(kind);
+}
+
+async function uploadAndIngest(file) {
+  els.uploadButton.disabled = true;
+  setUploadStatus(`Uploading ${file.name}… (this can take a minute on first ingest)`, null);
+  const body = new FormData();
+  body.append("file", file);
+  try {
+    const response = await fetch("/ingest/upload", { method: "POST", body });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+    }
+    const result = await response.json();
+    setUploadStatus(
+      `✓ Ingested "${result.title}" — ${result.chapter_count} chapters, ${result.chunk_count} chunks.`,
+      "ok",
+    );
+    els.uploadFile.value = "";
+    await loadDocuments();
+    // Auto-select the freshly ingested document so the next ask targets it.
+    if (result.document_id) {
+      els.document.value = result.document_id;
+    }
+  } catch (err) {
+    setUploadStatus(`✗ Upload failed: ${err.message}`, "err");
+  } finally {
+    els.uploadButton.disabled = false;
+  }
+}
+
+els.uploadForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const file = els.uploadFile.files[0];
+  if (!file) return;
+  uploadAndIngest(file);
 });
 
 loadDocuments();

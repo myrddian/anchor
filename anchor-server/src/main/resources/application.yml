@@ -1,6 +1,13 @@
 spring:
   application:
     name: anchor-server
+  servlet:
+    multipart:
+      # PDFs of papers run a few MB; the default 1MB is too tight. 50MB covers
+      # textbook chapters and most preprints without inviting abuse on a
+      # local-only service.
+      max-file-size: 50MB
+      max-request-size: 50MB
   datasource:
     # Default points at the docker-compose stack which binds host 5433 to
     # avoid collision with other local postgres (e.g. VoidCore on 5432).
@@ -74,6 +81,11 @@ jobs:
 ingest:
   chunk-target-tokens: 300
   abstract-min-words: 100
+
+# Where browser-uploaded PDFs land before they're parsed. Per-upload UUID
+# subdirs are created here automatically. Override with ANCHOR_UPLOAD_DIR.
+anchor:
+  upload-dir: ${ANCHOR_UPLOAD_DIR:${user.home}/.anchor/uploads}
 
 # Ask deliberation defaults.
 ask:

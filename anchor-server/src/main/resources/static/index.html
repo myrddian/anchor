@@ -13,6 +13,13 @@
   </header>
 
   <main>
+    <form id="upload-form">
+      <label for="upload-file">Add a paper</label>
+      <input id="upload-file" type="file" accept="application/pdf,.pdf" required>
+      <button type="submit" id="upload-button">Ingest</button>
+      <p id="upload-status" class="upload-status"></p>
+    </form>
+
     <form id="ask-form">
       <label for="document">Document</label>
       <select id="document" required>
