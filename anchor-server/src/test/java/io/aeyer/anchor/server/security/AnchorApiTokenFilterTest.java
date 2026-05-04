@@ -88,7 +88,9 @@ class AnchorApiTokenFilterTest {
         for (String exempt : new String[]{
                 "/", "/index.html", "/anchor.css", "/anchor.js", "/favicon.ico",
                 "/actuator/health", "/actuator/info", "/actuator/info/foo",
-                "/anchor/ui/config"}) {
+                "/anchor/ui/config",
+                "/v3/api-docs", "/v3/api-docs/swagger-config",
+                "/swagger-ui/index.html", "/swagger-ui/swagger-ui.css"}) {
             MockHttpServletRequest req = new MockHttpServletRequest("GET", exempt);
             MockHttpServletResponse res = new MockHttpServletResponse();
             Recording chain = recordingChain();

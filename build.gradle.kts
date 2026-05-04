@@ -10,7 +10,7 @@ allprojects {
 /**
  * Read the project-root .env into a Map<String,String>. Values already set in
  * the parent process environment win — .env is the file-of-record but a one-off
- * `LM_STUDIO_BASE_URL=… ./gradlew :anchor-server:bootRun` should still
+ * `LLM_BASE_URL=… ./gradlew :anchor-server:bootRun` should still
  * override. Comments (#) and blank lines ignored. Quotes around values are
  * stripped so `KEY="value with spaces"` works.
  */
@@ -70,7 +70,7 @@ subprojects {
 
     // Spring Boot's BootRun is a JavaExec task; wire .env into every JavaExec
     // (covers bootRun, run, application-plugin run, etc.) so a fresh
-    // `./gradlew :anchor-server:bootRun` reads LM_STUDIO_* / ANCHOR_DB_* from
+    // `./gradlew :anchor-server:bootRun` reads LLM_* / ANCHOR_DB_* from
     // .env without the operator having to source it first.
     tasks.withType<JavaExec>().configureEach {
         applyDotEnv()

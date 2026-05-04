@@ -12,6 +12,7 @@ val okhttpVersion: String by project
 val jacksonVersion: String by project
 val flywayVersion: String by project
 val testcontainersVersion: String by project
+val springdocVersion: String by project
 
 dependencies {
     implementation(project(":anchor-protocol"))
@@ -43,6 +44,10 @@ dependencies {
 
     implementation("org.mapstruct:mapstruct:$mapstructVersion")
     annotationProcessor("org.mapstruct:mapstruct-processor:$mapstructVersion")
+
+    // OpenAPI 3 spec generation + Swagger UI. Auto-discovers REST controllers
+    // and DTO records. Spec at /v3/api-docs, UI at /swagger-ui/index.html.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")

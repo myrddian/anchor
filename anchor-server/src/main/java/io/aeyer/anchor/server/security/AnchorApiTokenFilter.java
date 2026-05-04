@@ -47,6 +47,18 @@ public class AnchorApiTokenFilter extends OncePerRequestFilter {
             "/anchor/ui/config");
     private static final String EXEMPT_PREFIX_ACTUATOR_INFO = "/actuator/info";
 
+    /**
+     * Prefixes that bypass auth even when enabled. The OpenAPI spec and Swagger
+     * UI describe the API surface (paths, request/response shapes) — the
+     * descriptions themselves aren't sensitive, only the data behind them is,
+     * and that data still goes through token-gated endpoints. Exempting the
+     * docs lets developers explore the API at /swagger-ui/index.html without a
+     * token, then paste one into the "Authorize" button to actually call.
+     */
+    private static final java.util.List<String> EXEMPT_PREFIXES = java.util.List.of(
+            "/v3/api-docs",
+            "/swagger-ui");
+
     private final String expectedToken;
     private final byte[] expectedBytes;
 
@@ -84,7 +96,11 @@ public class AnchorApiTokenFilter extends OncePerRequestFilter {
     private boolean isExempt(String uri) {
         if (uri == null) return false;
         if (EXEMPT_PATHS.contains(uri)) return true;
-        return uri.startsWith(EXEMPT_PREFIX_ACTUATOR_INFO);
+        if (uri.startsWith(EXEMPT_PREFIX_ACTUATOR_INFO)) return true;
+        for (String prefix : EXEMPT_PREFIXES) {
+            if (uri.startsWith(prefix)) return true;
+        }
+        return false;
     }
 
     private void unauthorised(HttpServletResponse response, String reason) throws IOException {

@@ -11,9 +11,10 @@
 #   scripts/smoke-test.sh /path/to/paper.pdf "your question here"
 #
 # Env (or copy .env.example to .env and edit — auto-sourced below):
-#   LM_STUDIO_BASE_URL       e.g. http://mac-studio.local:1234/v1
-#   LM_STUDIO_CHAT_MODEL     e.g. gemma-3-4b-it
-#   LM_STUDIO_EMBEDDING_MODEL e.g. nomic-embed-text-v1.5
+#   LLM_BASE_URL              e.g. http://mac-studio.local:1234/v1
+#   LLM_CHAT_MODEL            e.g. gemma-3-4b-it
+#   LLM_EMBEDDING_MODEL       e.g. nomic-embed-text-v1.5
+# (LM_STUDIO_* still works as a back-compat fallback.)
 #   ANCHOR_DB_URL            (default jdbc:postgresql://localhost:5433/anchor)
 #   ANCHOR_BASE_URL          (default http://localhost:8090)
 #   ANCHOR_SKIP_COMPOSE=1    skip `docker compose up -d postgres`

@@ -48,15 +48,20 @@ management:
       show-details: always
       show-components: always
 
-# LM Studio (OpenAI-compatible). Hosted on the Mac Studio in dev.
+# Inference provider. Anchor speaks the OpenAI chat-completions and embeddings
+# wire format — works with LM Studio (the dev default), real OpenAI, vLLM,
+# llama.cpp's HTTP server, ollama's OpenAI-compat shim, anything that follows
+# the same shape. The env vars are named generically; LM_STUDIO_* still
+# resolves as a back-compat fallback so existing .env files keep working.
 lmstudio:
-  base-url: ${LM_STUDIO_BASE_URL:http://mac-studio.local:1234/v1}
-  chat-model: ${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}
-  embedding-model: ${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}
+  base-url: ${LLM_BASE_URL:${LM_STUDIO_BASE_URL:http://mac-studio.local:1234/v1}}
+  chat-model: ${LLM_CHAT_MODEL:${LM_STUDIO_CHAT_MODEL:gemma-3-4b-it}}
+  embedding-model: ${LLM_EMBEDDING_MODEL:${LM_STUDIO_EMBEDDING_MODEL:nomic-embed-text-v1.5}}
   embedding-dim: 768
   # Bearer token for the OpenAI-compatible endpoint. Empty for vanilla local
-  # LM Studio; set when pointing at a provider that requires auth (real OpenAI,
-  # vLLM with auth, Anthropic-compat proxy, etc.).
+  # LM Studio; set when pointing at a provider that requires auth. Kept under
+  # the LM_STUDIO_API_KEY name on purpose — Anthropic vs OpenAI key semantics
+  # diverge enough that a generic name would invite confusion.
   api-key: ${LM_STUDIO_API_KEY:}
   timeouts:
     blocking-seconds: 60
@@ -102,6 +107,20 @@ anchor:
   # the bearer to every request including the deliberation stream.
   web-ui:
     enabled: ${ANCHOR_WEB_UI_ENABLED:true}
+
+# OpenAPI / Swagger UI. Enabled in v0 because the spec is the contract — useful
+# for SDK consumers, integrators, and the curl-the-API audience. Set
+# ANCHOR_OPENAPI_ENABLED=false to drop both endpoints on hardened deployments.
+springdoc:
+  api-docs:
+    enabled: ${ANCHOR_OPENAPI_ENABLED:true}
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${ANCHOR_OPENAPI_ENABLED:true}
+    path: /swagger-ui/index.html
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
 
 # Ask deliberation defaults.
 ask:
