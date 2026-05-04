@@ -45,6 +45,12 @@ services:
       ANCHOR_API_TOKEN: ${ANCHOR_API_TOKEN:-}
       ANCHOR_WEB_UI_ENABLED: ${ANCHOR_WEB_UI_ENABLED:-true}
       ANCHOR_OPENAPI_ENABLED: ${ANCHOR_OPENAPI_ENABLED:-true}
+      # Point at the sidecar Jaeger (in the same compose network) instead of
+      # localhost — inside the container, localhost is the container itself.
+      # Override at runtime to hit a different collector. When the
+      # observability profile isn't activated, the override below points at
+      # nothing reachable and the OTLP exporter retries-and-drops; harmless.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
     ports:
       - "8090:8090"
     volumes:
@@ -58,13 +64,20 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # Observability stack — opt-in via `docker compose --profile observability up`.
-  # Brings up Jaeger (traces) and Prometheus (metrics) so you can see Anchor's
-  # spans + counters without standing up a full collector.
+  # Observability stack. Joined to BOTH the 'app' and 'observability' profiles
+  # so:
+  #   docker compose up                              → just postgres (the
+  #     historical dev workflow — server runs via `gradle bootRun` on the host
+  #     JVM, no observability noise)
+  #   docker compose --profile app up --build        → kitchen sink — postgres
+  #     + server + jaeger + prometheus, everything pre-wired and reachable
+  #   docker compose --profile observability up      → postgres + observability
+  #     only, useful when you want bootRun + traces but don't need the
+  #     containerised server
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: anchor-jaeger
-    profiles: ["observability"]
+    profiles: ["app", "observability"]
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
@@ -75,7 +88,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: anchor-prometheus
-    profiles: ["observability"]
+    profiles: ["app", "observability"]
     ports:
       - "9090:9090"
     volumes:
