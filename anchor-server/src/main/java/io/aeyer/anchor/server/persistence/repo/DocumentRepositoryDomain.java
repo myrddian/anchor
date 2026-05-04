@@ -42,6 +42,21 @@ public interface DocumentRepositoryDomain {
      */
     List<RetrieveSearchRow> findChunksForRetrieve(UUID documentId, float[] queryEmbedding, int limit);
 
+    /**
+     * /documents/search — rank docs by cosine of the caller's query against
+     * each doc's summary embedding. Documents whose summary hasn't been
+     * embedded yet (V2-pending backfill) are skipped.
+     */
+    List<DocumentSearchRow> searchDocumentsBySummary(float[] queryEmbedding, int limit);
+
+    /**
+     * /validate/quick — cosine of the caller's query against one document's
+     * summary embedding. Range [-1, 1]; the controller subtracts the negated
+     * query's score to get a stance reading. Empty when the document's
+     * summary embedding is missing.
+     */
+    Optional<Double> documentSummaryCosine(UUID documentId, float[] queryEmbedding);
+
     record DocumentCounts(int chapters, int sections, int chunks) {}
 
     record ChunkSearchHit(
@@ -67,4 +82,12 @@ public interface DocumentRepositoryDomain {
             UUID documentId,
             String documentTitle,
             String documentSummary) {}
+
+    record DocumentSearchRow(
+            UUID documentId,
+            String title,
+            String sourcePath,
+            String docSummary,
+            java.time.Instant ingestedAt,
+            double similarity) {}
 }

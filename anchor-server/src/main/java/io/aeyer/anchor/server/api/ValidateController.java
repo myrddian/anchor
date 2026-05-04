@@ -3,6 +3,8 @@ package io.aeyer.anchor.server.api;
 import io.aeyer.anchor.protocol.validate.AlternativeChunk;
 import io.aeyer.anchor.protocol.validate.ArgumentativeRole;
 import io.aeyer.anchor.protocol.validate.DocumentStance;
+import io.aeyer.anchor.protocol.validate.ValidateQuickRequest;
+import io.aeyer.anchor.protocol.validate.ValidateQuickResponse;
 import io.aeyer.anchor.protocol.validate.ValidateRequest;
 import io.aeyer.anchor.protocol.validate.ValidateResponse;
 import io.aeyer.anchor.server.domain.ChunkWithAncestors;
@@ -78,6 +80,50 @@ public class ValidateController {
     private boolean needsAlternatives(ValidationResult judgment) {
         return judgment.argumentativeRole() == ArgumentativeRole.STEELMAN_REFUTED_LATER
                 || judgment.documentStanceOnQuery() == DocumentStance.REJECTS;
+    }
+
+    /**
+     * Vector-only stance approximation. Embeds the query and its negation,
+     * scores both against the document's stored summary embedding, returns
+     * topical_relevance + (relevance − negated_relevance) as stance_score.
+     * No LLM call. Designed as a pre-filter for massive corpora — the caller
+     * decides whether the document is worth invoking the full /validate
+     * deliberation on.
+     *
+     * 404 if the document doesn't exist OR if its summary embedding hasn't
+     * been backfilled yet (the SummaryEmbeddingBackfill ApplicationRunner
+     * fixes that on next startup).
+     */
+    @PostMapping("/validate/quick")
+    public ResponseEntity<ValidateQuickResponse> validateQuick(@RequestBody ValidateQuickRequest request) {
+        if (request == null || request.documentId() == null
+                || request.query() == null || request.query().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        // Two embeddings in one batch keeps the embedding pool happy and is
+        // half the network round-trips of two separate calls.
+        List<Embedding> embeddings = embedder.embedAll(List.of(
+                request.query(), "not " + request.query()));
+        if (embeddings.size() < 2) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        float[] qVec = embeddings.get(0).vector();
+        float[] qNegVec = embeddings.get(1).vector();
+
+        java.util.Optional<Double> topical = documents.documentSummaryCosine(request.documentId(), qVec);
+        java.util.Optional<Double> negative = documents.documentSummaryCosine(request.documentId(), qNegVec);
+        if (topical.isEmpty() || negative.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        double stance = topical.get() - negative.get();
+        return ResponseEntity.ok(new ValidateQuickResponse(
+                request.documentId(),
+                request.query(),
+                topical.get(),
+                stance,
+                "vector_only"));
     }
 
     /**

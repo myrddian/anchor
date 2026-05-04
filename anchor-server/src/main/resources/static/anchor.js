@@ -4,6 +4,7 @@
 const $ = (id) => document.getElementById(id);
 const els = {
   form: $("ask-form"),
+  documentSearch: $("document-search"),
   document: $("document"),
   query: $("query"),
   button: $("ask-button"),
@@ -28,36 +29,65 @@ async function loadDocuments() {
     const response = await fetch("/documents?limit=200&offset=0");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
-    els.document.replaceChildren();
-    if (!body.documents || body.documents.length === 0) {
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "No documents ingested yet — use the shell to ingest one";
-      opt.disabled = true;
-      els.document.appendChild(opt);
-      els.button.disabled = true;
-      return;
-    }
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select a document…";
-    placeholder.disabled = true;
-    placeholder.selected = true;
-    els.document.appendChild(placeholder);
-    // Show title + ingested date (date helps disambiguate when the same
-    // paper has been re-ingested or two papers share a title). Chunk /
-    // section counts are debug info, not picker info — moved out.
-    for (const d of body.documents) {
-      const opt = document.createElement("option");
-      opt.value = d.document_id;
-      const date = d.ingested_at ? d.ingested_at.slice(0, 10) : "";
-      opt.textContent = date ? `${d.title}  ·  ${date}` : d.title;
-      els.document.appendChild(opt);
-    }
+    populateDocumentDropdown(body.documents || [], { mode: "list" });
   } catch (err) {
     showError(`Could not load documents: ${err.message}. Is the server running?`);
     els.button.disabled = true;
   }
+}
+
+async function searchDocuments(query) {
+  try {
+    const response = await fetch(`/documents/search?q=${encodeURIComponent(query)}&k=20`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    populateDocumentDropdown(body.hits || [], { mode: "search" });
+  } catch (err) {
+    showError(`Search failed: ${err.message}`);
+  }
+}
+
+/**
+ * Render a list of {document_id, title, ingested_at, score?} into the
+ * dropdown. Both `/documents` and `/documents/search` produce shapes that
+ * fit this normaliser; the only visible difference is whether a relevance
+ * score badge is appended in front of the title.
+ */
+function populateDocumentDropdown(items, { mode }) {
+  els.document.replaceChildren();
+  if (!items || items.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = mode === "search"
+      ? "No matches — try a broader query or clear search"
+      : "No documents ingested yet — upload one above or use the shell";
+    opt.disabled = true;
+    els.document.appendChild(opt);
+    els.button.disabled = true;
+    return;
+  }
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = mode === "search"
+    ? `Select a match (${items.length})…`
+    : "Select a document…";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  els.document.appendChild(placeholder);
+
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = item.document_id;
+    const date = item.ingested_at ? item.ingested_at.slice(0, 10) : "";
+    const score = mode === "search" && typeof item.score === "number"
+      ? `[${item.score.toFixed(2)}]  `
+      : "";
+    opt.textContent = date
+      ? `${score}${item.title}  ·  ${date}`
+      : `${score}${item.title}`;
+    els.document.appendChild(opt);
+  }
+  els.button.disabled = false;
 }
 
 function showError(message) {
@@ -286,6 +316,20 @@ els.uploadForm.addEventListener("submit", (event) => {
   const file = els.uploadFile.files[0];
   if (!file) return;
   uploadAndIngest(file);
+});
+
+// ---- Document search (debounced) ------------------------------------------
+let searchTimer = null;
+els.documentSearch.addEventListener("input", () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  const query = els.documentSearch.value.trim();
+  searchTimer = setTimeout(() => {
+    if (query === "") {
+      loadDocuments();
+    } else {
+      searchDocuments(query);
+    }
+  }, 250);
 });
 
 loadDocuments();

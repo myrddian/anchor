@@ -192,13 +192,17 @@ public class IngestService {
         String documentSummary = summariser.summariseDocument(parsed.title(), chapterSummaryList);
 
         // Embeddings — batched per paragraph to keep the embedding pool busy.
+        // Embed the doc_summary alongside the chunks so /documents/search and
+        // /validate/quick can rank by cosine on the summary directly without
+        // a per-query LLM call.
         List<ParsedChunk> allChunks = new ArrayList<>(chunkIds.keySet());
         Map<ParsedChunk, Embedding> chunkEmbeddings = embedAllChunks(allChunks);
+        float[] summaryEmbedding = embedSingle(documentSummary);
 
         TokenLedger.Snapshot tokens = ledger.snapshotAndReset();
 
         Counts counts = transactionTemplate.execute(status ->
-                persistAll(documentId, sourcePath, parsed, documentSummary,
+                persistAll(documentId, sourcePath, parsed, documentSummary, summaryEmbedding,
                         chapterIds, sectionIds, paragraphIds, chunkIds,
                         chapterSummaries, sectionSummaries, paragraphSummaries,
                         chunkEmbeddings));
@@ -210,6 +214,12 @@ public class IngestService {
         return new IngestResult(documentId, parsed.title(), sourcePath,
                 counts.chapters, counts.sections, counts.paragraphs, counts.chunks,
                 Instant.now(), tokens);
+    }
+
+    private float[] embedSingle(String text) {
+        if (text == null || text.isBlank()) return new float[0];
+        List<Embedding> result = embedder.embedAll(List.of(text));
+        return result.isEmpty() ? new float[0] : result.get(0).vector();
     }
 
     private Map<ParsedChunk, Embedding> embedAllChunks(List<ParsedChunk> allChunks) {
@@ -226,6 +236,7 @@ public class IngestService {
     }
 
     private Counts persistAll(UUID documentId, String sourcePath, ParsedDocument parsed, String documentSummary,
+                                float[] summaryEmbedding,
                                 Map<ParsedChapter, UUID> chapterIds, Map<ParsedSection, UUID> sectionIds,
                                 Map<ParsedParagraph, UUID> paragraphIds, Map<ParsedChunk, UUID> chunkIds,
                                 Map<UUID, String> chapterSummaries, Map<UUID, String> sectionSummaries,
@@ -244,6 +255,9 @@ public class IngestService {
         docDbo.setDocSummarySource(DocSummarySource.GENERATED);
         docDbo.setIngestedAt(Instant.now());
         docDbo.setMetadata(Map.of("content_hash", parsed.sourcePathHash()));
+        if (summaryEmbedding != null && summaryEmbedding.length > 0) {
+            docDbo.setSummaryEmbedding(summaryEmbedding);
+        }
         documents.save(docDbo);
 
         int chapterCount = 0, sectionCount = 0, paragraphCount = 0, chunkCount = 0;

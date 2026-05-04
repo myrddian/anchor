@@ -16,6 +16,9 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface DomainToEntityMapper {
 
+    // summaryEmbedding lives only on the DBO — Document is the public domain
+    // record and shouldn't carry the raw vector across the boundary.
+    @Mapping(target = "summaryEmbedding", ignore = true)
     DocumentDbo toEntity(Document domain);
 
     @Mapping(source = "isSynthetic", target = "synthetic")
