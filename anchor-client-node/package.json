@@ -1,0 +1,28 @@
+{
+  "name": "@aeyer/anchor-client",
+  "version": "0.2.0",
+  "description": "Node.js SDK for Anchor — source-grounded chunk validation + three-agent deliberation.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test"
+  },
+  "license": "Apache-2.0",
+  "author": "Enzo Reyes",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aeyer/anchor.git"
+  },
+  "keywords": ["anchor", "rag", "deliberation", "validation", "llm"]
+}
