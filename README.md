@@ -1,205 +1,174 @@
 # Anchor
 
-> Source-grounded chunk validation as a primitive. Two interfaces, two consumers,
-> one hierarchy. *Working name; v0 in progress — see [SPEC.md](SPEC.md).*
+> **Source-grounded chunk validation as a primitive.** v0 in progress — see
+> [SPEC.md](SPEC.md) for the full design.
 
-A retrieved chunk doesn't speak for its document. A paper's "compound X binds
-enzyme Y at K_i = 12 nM" can be exactly the claim the discussion section then
-demolishes. Vanilla RAG hands that chunk to a downstream LLM with no warning;
-the LLM fluently mis-reads it; the reader trusts a confident, grounded-looking,
-*wrong* answer.
+A retrieved chunk doesn't speak for its document. A paper's *"compound X
+binds enzyme Y at K_i = 12 nM"* can be exactly the claim the discussion
+section then demolishes. Vanilla RAG hands that chunk to a downstream
+LLM with no warning; the LLM fluently mis-reads it; the reader trusts a
+confident, grounded-looking, **wrong** answer.
 
-Anchor exposes one primitive — **source-grounded chunk validation, given the
-document's full argument** — through two interfaces, each shaped for a
-different consumer:
+Anchor exposes one primitive — *source-grounded chunk validation, given the
+document's full argument* — through two interfaces shaped for two consumers:
 
-- `POST /validate` — for **machines**. Synchronous JSON judgment with
+- **`POST /validate`** — for **machines.** Synchronous JSON judgment with
   `argumentative_role` and `document_stance_on_query` enums. Branch on it.
-  When the model flags the chunk as steelman-then-refuted or as living in a
-  document that *rejects* the query, the response also includes the chunks
-  doing the actual refuting (alternative-chunk discovery via cosine search on
-  the negated query).
-- `POST /documents/{id}/ask` — for **humans**. An async three-agent
+  When a chunk is steelman-then-refuted or lives in a doc that *rejects*
+  the query, the response also returns the chunks doing the refuting.
+- **`POST /documents/{id}/ask`** — for **humans.** Async three-agent
   deliberation (proposer / critic / synthesiser) with **differentiated
-  evidence access**, streamed token-by-token over SSE. The critic sees only
-  the macro view (chapter + doc summaries), which forces structural
-  disagreement rather than paraphrase. The transparency *is* the trust
-  mechanism.
+  evidence access**, streamed token-by-token. The critic sees only the
+  macro view (chapter + doc summaries); that asymmetry forces structural
+  disagreement instead of paraphrase. The transparency *is* the trust.
 
 Both back onto the same hierarchy: `documents → chapters → sections →
-paragraphs → chunks`, with claim-bearing summaries at each level. The
-critical compression rule (SPEC §4.5): **raw text never appears in inputs to
-layers above paragraph summarisation.** Section / chapter / doc summaries see
-only the summaries below them.
+paragraphs → chunks` with claim-bearing summaries at each level. **Raw
+text never appears in inputs to layers above paragraph summarisation**
+(SPEC §4.5) — section / chapter / doc summaries see only the summaries
+below them.
 
-**Mental model:** documents-as-databases. Each ingested document is the unit
-of query. You "connect" to a document the way you connect to a Postgres DB,
-interrogate it, and either get structured judgment or first-person grounded
-prose.
+## Try it in 60 seconds
 
-## Why this is different
+```bash
+docker compose up -d postgres                    # pgvector on :5433
+cp .env.example .env                             # set LLM_BASE_URL
+./gradlew :anchor-server:bootRun                 # boots on :8090
+```
 
-Most RAG systems treat retrieval as a single-shot lookup: top-K chunks → stuff
-into a prompt → call the model. Anchor refuses that simplification at three
-points:
+Then drive the API directly:
 
-1. **Retrieval is opinionated about its consumer.** A machine wants enums it
-   can branch on. A human wants reasoning it can audit. Same backend, two
-   shapes.
-2. **The deliberation is the trust mechanism.** Anchor doesn't claim the
-   synthesiser's answer is correct — it claims the deliberation transcript is
-   honest. The critic-with-restricted-evidence is the structural lever that
-   keeps the synthesiser from agreeing with the proposer too easily.
-3. **Documents are databases, not corpora.** Cross-corpus retrieval exists
-   but the optimisation target is *deeply* understanding one document at a
-   time. Every endpoint takes `document_id` explicitly.
+```bash
+# 1. Ingest a paper. Returns 202 + job_id; poll progress.
+curl -X POST http://localhost:8090/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"source_path": "/abs/path/to/paper.pdf"}'
+# → {"job_id":"7f...","progress_url":"/ingest/jobs/7f..."}
+
+curl http://localhost:8090/ingest/jobs/7f...
+# → {"status":"RUNNING","phase":"SUMMARISING_PARAGRAPHS","percent_complete":42, ...}
+
+# 2. Once COMPLETED, validate a specific chunk against a query.
+curl -X POST http://localhost:8090/validate \
+  -H 'Content-Type: application/json' \
+  -d '{"chunk_id":"<uuid>", "query":"compound X inhibits enzyme Y"}'
+# → {"is_load_bearing":true, "argumentative_role":"STEELMAN_REFUTED_LATER",
+#    "document_stance_on_query":"REJECTS", "alternative_chunks":[...]}
+
+# 3. Or kick off a deliberation and stream the agents.
+curl -X POST http://localhost:8090/documents/<doc-id>/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"does compound X inhibit enzyme Y?"}'
+# → 202 {"job_id":"a1...","stream_url":"/jobs/a1.../stream"}
+
+curl -N http://localhost:8090/jobs/a1.../stream     # SSE
+```
+
+The full API is documented at **<http://localhost:8090/swagger-ui/index.html>**
+(spec at `/v3/api-docs`) — the contract for SDK consumers and integrators.
+
+## SDKs
+
+Three first-party SDKs, same surface, language-idiomatic ergonomics:
+
+```java
+// Java
+AnchorClient client = AnchorClient.builder()
+        .baseUrl("http://localhost:8090")
+        .apiToken(System.getenv("ANCHOR_API_TOKEN"))   // optional
+        .build();
+
+AnchorDocument doc = client.use("Smith2024");          // by title or UUID
+ValidateResponse v = doc.validate(chunkId, "compound X inhibits enzyme Y");
+
+AskHandle handle = doc.ask("does compound X inhibit enzyme Y?");
+handle.subscribe(event -> render(event));              // live SSE
+AskJobResponse result = handle.await(Duration.ofMinutes(2));
+```
+
+```python
+# Python — pip install -e anchor-client-python
+from anchor_client import AnchorClient
+
+client = AnchorClient(base_url="http://localhost:8090", api_token=...)
+doc = client.use(title_substring="Smith2024")
+result = doc.ask("does compound X inhibit enzyme Y?").await_completion()
+print(result["final_response"])
+```
+
+```js
+// Node 18+ — ESM, zero dependencies
+import { AnchorClient } from "@aeyer/anchor-client";
+
+const client = new AnchorClient({ baseUrl: "http://localhost:8090", apiToken: ... });
+const doc = await client.use({ titleSubstring: "Smith2024" });
+const handle = await doc.ask("does compound X inhibit enzyme Y?");
+for await (const event of handle.streamEvents()) { /* ... */ }
+```
+
+[anchor-client/](anchor-client/) · [anchor-client-python/](anchor-client-python/) · [anchor-client-node/](anchor-client-node/)
+
+## Try it in a browser
+
+A single-page UI ships at **<http://localhost:8090/>** — pick a document,
+type a question, watch the proposer / critic / synthesiser deliberate
+live. **Useful for sanity-checking ingestion and giving non-developers a
+look,** but the API is what you're integrating. Disable for hardened
+deployments with `ANCHOR_WEB_UI_ENABLED=false`.
+
+## Configuration
+
+```bash
+# Inference (any OpenAI-compatible endpoint — LM Studio, real OpenAI,
+# vLLM, llama.cpp's HTTP server, ollama's OpenAI shim, …)
+LLM_BASE_URL=http://mac-studio.local:1234/v1
+LLM_CHAT_MODEL=gemma-3-4b-it
+LLM_EMBEDDING_MODEL=nomic-embed-text-v1.5             # 768-dim required
+LM_STUDIO_API_KEY=                                    # bearer; empty = no auth
+
+# Server
+ANCHOR_API_TOKEN=                                     # empty = open dev mode
+ANCHOR_WEB_UI_ENABLED=true
+ANCHOR_OPENAPI_ENABLED=true
+
+# Postgres (defaults match docker-compose.yml)
+ANCHOR_DB_URL=jdbc:postgresql://localhost:5433/anchor
+```
+
+Full reference: [.env.example](.env.example). The Gradle build auto-loads
+`.env` for `bootRun` and the test suite — no shell sourcing needed.
 
 ## Status
 
-**v0 in progress — Phase 1–4 server-side and SDK/shell are landed.**
+| Phase | Status |
+|---|---|
+| 0 — Spike (manual chemist eyeball) | Pending |
+| 1 — Foundations + Ingest | **Done** |
+| 2 — `/validate` + Document resource | **Done** |
+| 3 — Deliberation core (`/ask` + jobs) | **Done** |
+| 4 — SSE + `/retrieve` + SDK + shell | **Done** |
+| 5 — Writeup + tag v0.1.0 | Open |
+| 6 — Maven Central / npm / PyPI | Open |
 
-| Phase | Status | Tickets |
-|---|---|---|
-| 0 — Spike (manual chemist eyeball) | Pending | ANC-1, ANC-2 |
-| 1 — Foundations + Ingest | **Done** | ANC-3..ANC-7 |
-| 2 — /validate + Document resource | **Done** | ANC-9, ANC-10, ANC-11 |
-| 3 — Deliberation core (/ask + jobs) | **Done** | ANC-12..ANC-15 |
-| 4 — SSE + /retrieve + SDK + shell | **Done** | ANC-16..ANC-19 |
-| 5 — Writeup + tag v0.1.0 | Open | ANC-20, ANC-21 |
-| 6 — Maven Central | Open | ANC-22..ANC-24 |
-
-87 tests; 18 of them are integration tests gated on a pgvector instance
-reachable on `localhost:5433`. The integration suite passes against
-`pgvector/pgvector:pg16`.
-
-The client SDK API is **not stable** until v0.2.0; nothing is published to
-Maven Central yet.
-
-## Endpoints
-
-| Verb | Path | Purpose |
-|---|---|---|
-| POST | `/ingest` | Ingest a PDF; idempotent on content hash. |
-| GET | `/documents` | List ingested documents (paginated, `q=` substring filter). |
-| GET | `/documents/{id}` | Document detail (chapters + sections, no raw text). |
-| GET | `/chunks/{id}` | Chunk text + full ancestor chain. |
-| POST | `/validate` | Judgment on a chunk vs. a query. Includes alternative chunks when steelman-refuted. |
-| POST | `/retrieve` | Semantic retrieval (Shape 1 — chunks wrapped with full ancestor stack). |
-| POST | `/documents/{id}/ask` | Start a three-agent deliberation. Returns 202 + `job_id`. |
-| GET | `/jobs/{id}` | Current deliberation envelope (status, agent slots, final response). |
-| GET | `/jobs/{id}/stream` | SSE stream of status + thought tokens + completion events; supports reconnect-replay. |
-| DELETE | `/jobs/{id}` | Best-effort cancel. |
-| GET | `/health` | Standard Spring actuator. |
-
-## Quickstart
-
-### 1. Postgres
-
-```bash
-docker compose up -d postgres
-```
-
-This brings up `pgvector/pgvector:pg16` on **host port 5433** (not the
-postgres default 5432) with database `anchor`, user `anchor`, password
-`anchor`. The non-default port keeps Anchor from fighting other local
-postgres instances on 5432.
-
-### 2. LM Studio
-
-Run LM Studio anywhere on your LAN with **chat:** Gemma 4 E4B (one slot) and
-**embedding:** `nomic-embed-text-v1.5` (768-dim, two slots). Note the OpenAI-
-compatible base URL.
-
-### 3. Configure (one-time)
-
-```bash
-cp .env.example .env
-$EDITOR .env       # set LM_STUDIO_BASE_URL etc.
-```
-
-The `.env` file is gitignored. Spring Boot reads its values as system env
-vars; `scripts/smoke-test.sh` auto-sources it. Or skip the file and pass
-the env vars directly on every command — both work.
-
-### 4. Server
-
-```bash
-./gradlew :anchor-server:bootRun
-```
-
-The Gradle build auto-loads `.env` for `bootRun` (and the test suite), so
-nothing else is needed. Already-exported shell vars and inline overrides
-(`LM_STUDIO_BASE_URL=… ./gradlew …`) still win.
-
-Server boots on `:8090` by default. Watch the startup log for the named
-worker threads (`chat-worker-0`, `embedding-worker-0..1`,
-`deliberation-worker-0..3`, `ingest-worker-0`) — that's how SPEC §7.9 thread
-correlation surfaces in practice.
-
-### 5. Web UI
-
-Open <http://localhost:8090/> in a browser. Pick a document, type a question,
-watch the proposer / critic / synthesiser deliberation render live over SSE.
-Built for non-developer demo audiences (chemists, reviewers) who shouldn't
-have to look at JSON. No build step — single static page served from the JAR.
-
-### 6. Shell (interactive)
-
-```bash
-./gradlew :anchor-shell:bootRun
-
-anchor:> ingest /path/to/paper.pdf
-anchor:> list
-anchor:> use Smith2024     # or use <uuid>
-anchor:> describe
-anchor:> retrieve "does compound X inhibit enzyme Y" --k 5
-anchor:> validate <chunk-uuid> "compound X inhibits enzyme Y"
-anchor:> ask "does compound X inhibit enzyme Y"
-anchor:> demo "does compound X inhibit enzyme Y"   # /retrieve + /ask side-by-side
-```
-
-### 7. SDK (Java)
-
-```java
-AnchorClient anchor = AnchorClient.builder()
-    .baseUrl("http://localhost:8090")
-    .timeout(Duration.ofSeconds(120))
-    .build();
-
-AnchorDocument doc = anchor.use("Smith2024");
-
-// Synchronous judgment for an LLM-driven loop.
-ValidateResponse v = doc.validate(chunkId, "compound X inhibits enzyme Y");
-switch (v.argumentativeRole()) { ... }
-
-// Async deliberation for a human-facing UI.
-AskHandle ask = doc.ask("does compound X inhibit enzyme Y");
-ask.subscribe(event -> render(event));         // SSE token stream
-AskJobResponse final = ask.await(Duration.ofMinutes(2));
-```
-
-See [docs/client-usage.md](docs/client-usage.md) for the long form.
-
-## Running tests
-
-```bash
-./gradlew test                      # unit tests, no Docker required
-docker compose up -d postgres       # for integration tests
-./gradlew test                      # now includes the gated integration suite
-```
-
-Integration tests probe `localhost:5433` for a pgvector instance with the
-`vector` extension installed and skip gracefully if absent. Override the
-target with `ANCHOR_TEST_POSTGRES_URL=jdbc:postgresql://host:port/db`.
+**Not stable until v0.2.0.** Nothing published yet; install from this
+checkout. ~90 unit + integration tests; the integration suite is gated on a
+pgvector instance reachable on `localhost:5433`.
 
 ## Stack
 
-Java 21, Spring Boot 3.3.x, Postgres 16 + pgvector, Apache PDFBox 3.x, OkHttp +
-Jackson against an OpenAI-compatible LM Studio endpoint, Flyway, MapStruct,
-JUnit 5 + Testcontainers. Apache 2.0 + NOTICE.
+Java 21, Spring Boot 3.3.x, Postgres 16 + pgvector (HNSW cosine), Apache
+PDFBox 3.x + Apache Tika 2.9.x for ingest, OkHttp + Jackson for the
+inference client, springdoc for OpenAPI, Flyway for migrations, MapStruct,
+JUnit 5 + Testcontainers. Apache 2.0.
 
-LM Studio runs separately. Default chat model: Gemma 4 E4B. Embedding model:
-`nomic-embed-text-v1.5` (768-dim).
+## Documentation
+
+- [SPEC.md](SPEC.md) — full v0 design (the source of truth).
+- [docs/architecture.md](docs/architecture.md) — module/package boundaries, DBO/domain/DTO discipline, worker pools.
+- [docs/prompts.md](docs/prompts.md) — the eight prompts and their tuning protocol.
+- [docs/client-usage.md](docs/client-usage.md) — Java SDK long form + async patterns.
+- [docs/evaluation.md](docs/evaluation.md) — corpus, success criteria, eyeball protocol.
+- Live: <http://localhost:8090/swagger-ui/index.html> when the server is running.
 
 ## Repository layout
 
@@ -207,32 +176,15 @@ LM Studio runs separately. Default chat model: Gemma 4 E4B. Embedding model:
 anchor/
 ├── SPEC.md                       v0 specification (source of truth)
 ├── CLAUDE.md                     Agent orientation
-├── LICENCE                       Apache 2.0
-├── NOTICE                        Attribution
 ├── docker-compose.yml            Postgres 16 + pgvector
-├── settings.gradle.kts           Multi-module include
-├── build.gradle.kts              Root build
-├── docs/                         Architecture, prompts, client usage, evaluation
 ├── anchor-protocol/              Shared request/response records, enums
 ├── anchor-server/                Spring Boot service
 ├── anchor-client/                Java SDK
-├── anchor-shell/                 Spring Shell harness
-└── test-corpus/                  Local chemistry papers (gitignored)
+├── anchor-client-python/         Python SDK
+├── anchor-client-node/           Node.js SDK (ESM, zero deps)
+├── anchor-shell/                 Spring Shell harness — `./gradlew :anchor-shell:bootRun`
+└── docs/                         Architecture, prompts, client usage, evaluation
 ```
-
-## Documentation
-
-- [Specification](SPEC.md) — full v0 design.
-- [Architecture](docs/architecture.md) — module/package boundaries, DBO/domain/DTO discipline, worker pools.
-- [Prompts](docs/prompts.md) — the eight prompts and their tuning protocol.
-- [Client usage](docs/client-usage.md) — SDK quickstart and async patterns.
-- [Evaluation](docs/evaluation.md) — corpus, success criteria, eyeball protocol.
-- [Backlog](docs/backlog.md) — Linear mirror of the v0 plan.
-
-## Contributing
-
-This is a personal research project. PRs are welcome but support is not
-guaranteed; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
