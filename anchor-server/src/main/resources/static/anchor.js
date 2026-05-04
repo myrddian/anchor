@@ -40,10 +40,14 @@ async function loadDocuments() {
     placeholder.disabled = true;
     placeholder.selected = true;
     els.document.appendChild(placeholder);
+    // Show title + ingested date (date helps disambiguate when the same
+    // paper has been re-ingested or two papers share a title). Chunk /
+    // section counts are debug info, not picker info — moved out.
     for (const d of body.documents) {
       const opt = document.createElement("option");
       opt.value = d.document_id;
-      opt.textContent = `${d.title}  ·  ${d.chapter_count}ch ${d.section_count}sec ${d.chunk_count} chunks`;
+      const date = d.ingested_at ? d.ingested_at.slice(0, 10) : "";
+      opt.textContent = date ? `${d.title}  ·  ${date}` : d.title;
       els.document.appendChild(opt);
     }
   } catch (err) {

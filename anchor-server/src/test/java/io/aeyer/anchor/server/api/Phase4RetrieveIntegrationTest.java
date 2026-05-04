@@ -83,6 +83,11 @@ class Phase4RetrieveIntegrationTest {
         seedData();
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        if (seededDocumentId != null) documents.deleteById(seededDocumentId);
+    }
+
     @Test
     void retrieve_returns_chunks_wrapped_with_full_ancestor_stack() throws Exception {
         when(llm.embedBatch(any())).thenReturn(List.of(new Embedding(unit(1.0f))));

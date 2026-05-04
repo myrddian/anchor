@@ -87,6 +87,12 @@ class Phase2EndpointsIntegrationTest {
         seedData();
     }
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        // Cascade FK takes care of chapters → sections → paragraphs → chunks.
+        if (seededDocumentId != null) documents.deleteById(seededDocumentId);
+    }
+
     @Test
     void list_documents_returns_summaries_with_counts() throws Exception {
         mvc.perform(get("/documents"))

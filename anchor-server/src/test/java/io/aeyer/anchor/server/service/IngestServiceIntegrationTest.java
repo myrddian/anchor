@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -63,6 +64,14 @@ class IngestServiceIntegrationTest {
     @Autowired IngestService ingest;
     @Autowired DocumentRepository documents;
 
+    private final java.util.Set<UUID> seeded = new java.util.LinkedHashSet<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        seeded.forEach(documents::deleteById);
+        seeded.clear();
+    }
+
     @Test
     void ingest_round_trip_persists_full_hierarchy_and_assigns_stable_id(@TempDir Path tempDir) throws IOException {
         // The summariser cascades; mocking each level separately would be brittle.
@@ -81,6 +90,7 @@ class IngestServiceIntegrationTest {
         Path pdf = writePdf(tempDir.resolve("paper.pdf"));
 
         IngestService.IngestResult first = ingest.ingest(pdf.toString());
+        seeded.add(first.documentId());
 
         assertThat(first.title()).isEqualTo("paper");
         assertThat(first.chapterCount()).isGreaterThanOrEqualTo(1);

@@ -78,10 +78,22 @@ class PersistenceIntegrationTest {
     @Autowired ParagraphRepository paragraphs;
     @Autowired ChunkRepository chunks;
 
+    private final java.util.Set<UUID> seeded = new java.util.LinkedHashSet<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        // Cascade FK takes care of children. Tests that previously leaked left
+        // dozens of "Roundtrip paper <UUID>" / "Multi-chapter <UUID>" /
+        // "Thread test <UUID>" docs in the operator's local pgvector.
+        seeded.forEach(documents::deleteById);
+        seeded.clear();
+    }
+
     @Test
     void roundtrips_full_hierarchy_through_jpa_and_returns_eager_domain_records() {
         DocumentDbo docDbo = newDocumentDbo("Roundtrip paper " + UUID.randomUUID());
         documents.save(docDbo);
+        seeded.add(docDbo.getId());
 
         ChapterDbo chapterDbo = newChapterDbo(docDbo.getId(), 0, "Chapter 1");
         chapters.save(chapterDbo);
@@ -117,6 +129,7 @@ class PersistenceIntegrationTest {
     void document_context_walks_full_hierarchy_in_order() {
         DocumentDbo docDbo = newDocumentDbo("Multi-chapter " + UUID.randomUUID());
         documents.save(docDbo);
+        seeded.add(docDbo.getId());
         for (int c = 0; c < 2; c++) {
             ChapterDbo chapterDbo = newChapterDbo(docDbo.getId(), c, "Chapter " + (c + 1));
             chapters.save(chapterDbo);
@@ -146,6 +159,7 @@ class PersistenceIntegrationTest {
         // SPEC §7.1: domain records cross thread boundaries. If anything is lazy this throws.
         DocumentDbo docDbo = newDocumentDbo("Thread test " + UUID.randomUUID());
         documents.save(docDbo);
+        seeded.add(docDbo.getId());
         ChapterDbo chapterDbo = newChapterDbo(docDbo.getId(), 0, "C1");
         chapters.save(chapterDbo);
         SectionDbo sectionDbo = newSectionDbo(chapterDbo.getId(), 0, "S1");
