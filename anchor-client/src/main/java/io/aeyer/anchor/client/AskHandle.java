@@ -58,10 +58,14 @@ public final class AskHandle {
      * letting the deliberation finish (server emits COMPLETED then closes).
      */
     public void subscribe(Consumer<JobEvent> handler) {
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
                 .url(transport.baseUrl() + "/jobs/" + jobId + "/stream")
-                .header("Accept", "text/event-stream")
-                .build();
+                .header("Accept", "text/event-stream");
+        // SSE goes around HttpTransport's helpers, so apply API auth here too.
+        if (transport.apiToken() != null && !transport.apiToken().isBlank()) {
+            builder.header("Authorization", "Bearer " + transport.apiToken());
+        }
+        Request request = builder.build();
         EventSource source = EventSources.createFactory(transport.httpClient())
                 .newEventSource(request, new EventSourceListener() {
                     @Override

@@ -86,6 +86,10 @@ ingest:
 # subdirs are created here automatically. Override with ANCHOR_UPLOAD_DIR.
 anchor:
   upload-dir: ${ANCHOR_UPLOAD_DIR:${user.home}/.anchor/uploads}
+  # Bearer token enforced on every request when non-empty. Empty default keeps
+  # the dev / single-host workflow open; set ANCHOR_API_TOKEN before exposing
+  # the service beyond localhost. See SecurityConfig for exempt paths.
+  api-token: ${ANCHOR_API_TOKEN:}
 
 # Ask deliberation defaults.
 ask:

@@ -114,14 +114,17 @@ public final class AnchorClient {
         private String baseUrl = "http://localhost:8090";
         private Duration timeout = Duration.ofSeconds(60);
         private ObjectMapper mapper;
+        private String apiToken;
 
         public Builder baseUrl(String baseUrl) { this.baseUrl = baseUrl; return this; }
         public Builder timeout(Duration timeout) { this.timeout = timeout; return this; }
         public Builder objectMapper(ObjectMapper mapper) { this.mapper = mapper; return this; }
+        /** Bearer token sent as {@code Authorization: Bearer <token>} on every request. Null/blank disables auth. */
+        public Builder apiToken(String apiToken) { this.apiToken = apiToken; return this; }
 
         public AnchorClient build() {
             ObjectMapper m = mapper != null ? mapper : defaultMapper();
-            return new AnchorClient(new HttpTransport(baseUrl, timeout, m));
+            return new AnchorClient(new HttpTransport(baseUrl, timeout, m, apiToken));
         }
 
         private ObjectMapper defaultMapper() {
