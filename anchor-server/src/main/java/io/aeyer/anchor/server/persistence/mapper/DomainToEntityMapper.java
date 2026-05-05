@@ -24,6 +24,7 @@ public interface DomainToEntityMapper {
     @Mapping(source = "isSynthetic", target = "synthetic")
     ChapterDbo toEntity(Chapter domain);
 
+    @Mapping(source = "isSynthetic", target = "synthetic")
     SectionDbo toEntity(Section domain);
 
     ParagraphDbo toEntity(Paragraph domain);

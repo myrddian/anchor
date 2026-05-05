@@ -31,6 +31,7 @@ public final class ParsedTypes {
             String title,
             int orderIndex,
             boolean isAbstract,
+            boolean isSynthetic,
             List<ParsedParagraph> paragraphs) {}
 
     public record ParsedParagraph(int orderIndex, List<ParsedChunk> chunks) {}

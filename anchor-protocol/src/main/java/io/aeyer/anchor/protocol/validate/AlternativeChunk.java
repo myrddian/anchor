@@ -14,4 +14,5 @@ public record AlternativeChunk(
         @JsonProperty("text") String text,
         @JsonProperty("paragraph_summary") String paragraphSummary,
         @JsonProperty("section_title") String sectionTitle,
+        @JsonProperty("section_synthetic") boolean sectionSynthetic,
         @JsonProperty("similarity") double similarity) {}

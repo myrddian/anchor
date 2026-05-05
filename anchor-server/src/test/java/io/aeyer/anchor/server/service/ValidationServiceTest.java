@@ -149,7 +149,7 @@ class ValidationServiceTest {
         return new ChunkWithAncestors(
                 new Chunk(chunkId, paragraphId, 0, "chunk text", new float[]{0.1f}),
                 new Paragraph(paragraphId, sectionId, 0, "raw paragraph text", "paragraph claim"),
-                new Section(sectionId, chapterId, 0, "Methods", "section claim"),
+                new Section(sectionId, chapterId, 0, "Methods", "section claim", false),
                 new Chapter(chapterId, docId, 0, "Chapter 1", "chapter claim", false),
                 new Document(docId, "Test paper", "/tmp/x", "doc claim",
                         DocSummarySource.GENERATED, Instant.now(), Map.of()));

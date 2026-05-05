@@ -184,6 +184,7 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                        k.text AS chunk_text,
                        p.summary AS paragraph_summary,
                        s.title AS section_title,
+                       s.is_synthetic AS section_synthetic,
                        1 - (k.embedding <=> ?::vector) AS similarity
                 FROM chunks k
                 JOIN paragraphs p ON p.id = k.paragraph_id
@@ -199,6 +200,7 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                         rs.getString("chunk_text"),
                         rs.getString("paragraph_summary"),
                         rs.getString("section_title"),
+                        rs.getBoolean("section_synthetic"),
                         rs.getDouble("similarity")),
                 vectorLiteral, documentId, vectorLiteral, Math.max(1, Math.min(50, limit)));
     }
@@ -212,8 +214,10 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                        k.text AS chunk_text,
                        1 - (k.embedding <=> ?::vector) AS similarity,
                        p.id AS paragraph_id, p.summary AS paragraph_summary,
-                       s.id AS section_id, s.title AS section_title, s.summary AS section_summary,
-                       c.id AS chapter_id, c.title AS chapter_title, c.summary AS chapter_summary,
+                       s.id AS section_id, s.title AS section_title,
+                       s.is_synthetic AS section_synthetic, s.summary AS section_summary,
+                       c.id AS chapter_id, c.title AS chapter_title,
+                       c.is_synthetic AS chapter_synthetic, c.summary AS chapter_summary,
                        d.id AS document_id, d.title AS document_title, d.doc_summary AS document_summary
                 FROM chunks k
                 JOIN paragraphs p ON p.id = k.paragraph_id
@@ -238,9 +242,11 @@ public class DocumentRepositoryImpl implements DocumentRepositoryDomain {
                         rs.getString("paragraph_summary"),
                         (UUID) rs.getObject("section_id"),
                         rs.getString("section_title"),
+                        rs.getBoolean("section_synthetic"),
                         rs.getString("section_summary"),
                         (UUID) rs.getObject("chapter_id"),
                         rs.getString("chapter_title"),
+                        rs.getBoolean("chapter_synthetic"),
                         rs.getString("chapter_summary"),
                         (UUID) rs.getObject("document_id"),
                         rs.getString("document_title"),

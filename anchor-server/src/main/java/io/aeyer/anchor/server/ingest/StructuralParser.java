@@ -66,7 +66,9 @@ public class StructuralParser {
             }
             paragraphs.add(new ParsedParagraph(i, parsedChunks));
         }
-        return new ParsedSection(section.title(), section.orderIndex(), section.isAbstract(), paragraphs);
+        return new ParsedSection(
+                section.title(), section.orderIndex(), section.isAbstract(),
+                section.isSynthetic(), paragraphs);
     }
 
     /**

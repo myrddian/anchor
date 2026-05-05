@@ -158,13 +158,15 @@ public class ValidationService {
     }
 
     private String fillTemplate(ChunkWithAncestors evidence, String query) {
+        // {section_title} / {chapter_title} were dropped from the prompt
+        // template — the validate task doesn't need them and feeding either
+        // a synthetic sentinel or a regex-misfired heading like "X Y" would
+        // pollute the judgment with noise the model has to reason around.
         return tpl
                 .replace("{query}", nullSafe(query))
                 .replace("{chunk_text}", nullSafe(evidence.chunk().text()))
                 .replace("{paragraph_summary}", nullSafe(evidence.paragraph().summary()))
-                .replace("{section_title}", nullSafe(evidence.section().title()))
                 .replace("{section_summary}", nullSafe(evidence.section().summary()))
-                .replace("{chapter_title}", nullSafe(evidence.chapter().title()))
                 .replace("{chapter_summary}", nullSafe(evidence.chapter().summary()))
                 .replace("{document_title}", nullSafe(evidence.document().title()))
                 .replace("{doc_summary}", nullSafe(evidence.document().docSummary()));

@@ -24,6 +24,9 @@ public class SectionDbo {
     @Column(nullable = false)
     private String summary;
 
+    @Column(name = "is_synthetic", nullable = false)
+    private boolean isSynthetic;
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
     public UUID getChapterId() { return chapterId; }
@@ -34,4 +37,6 @@ public class SectionDbo {
     public void setTitle(String title) { this.title = title; }
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
+    public boolean isSynthetic() { return isSynthetic; }
+    public void setSynthetic(boolean synthetic) { isSynthetic = synthetic; }
 }

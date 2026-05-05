@@ -7,6 +7,7 @@ import io.aeyer.anchor.protocol.ask.EvidenceAccess;
 import io.aeyer.anchor.protocol.ask.JobStatus;
 import io.aeyer.anchor.protocol.sse.JobEventType;
 import io.aeyer.anchor.server.domain.DocumentContext;
+import io.aeyer.anchor.server.domain.StructuralRef;
 import io.aeyer.anchor.server.ingest.ChapterDetector;
 import io.aeyer.anchor.server.jobs.AskJob;
 import io.aeyer.anchor.server.jobs.JobStore;
@@ -265,6 +266,8 @@ public class AskService {
         Instant start = Instant.now();
         String prompt = applyVocabulary(proposerTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
+                .replace("{document_authors}", formatAuthorsForPrompt(ctx))
+                .replace("{document_citations}", formatCitationsForPrompt(ctx))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
                 .replace("{top_sections_with_summaries}", topSectionsBlock(ctx, topChunks))
@@ -283,8 +286,14 @@ public class AskService {
 
     private AgentEnvelope runCritic(DocumentContext ctx, String query, String proposerResponse) {
         Instant start = Instant.now();
+        // Critic gets authors + citations too. They're document-level identity
+        // facts (not mid-level structure) and don't break the macro-only
+        // contract — they let the critic verify "this proposer claim names
+        // an author who isn't actually on this document" or similar.
         String prompt = applyVocabulary(criticTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
+                .replace("{document_authors}", formatAuthorsForPrompt(ctx))
+                .replace("{document_citations}", formatCitationsForPrompt(ctx))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
                 .replace("{query}", nullSafe(query))
@@ -309,6 +318,8 @@ public class AskService {
                 : formatNumberedList(challenges);
         String prompt = applyVocabulary(synthesiserTpl, ctx)
                 .replace("{document_title}", nullSafe(ctx.document().title()))
+                .replace("{document_authors}", formatAuthorsForPrompt(ctx))
+                .replace("{document_citations}", formatCitationsForPrompt(ctx))
                 .replace("{doc_summary}", nullSafe(ctx.document().docSummary()))
                 .replace("{concatenated_chapter_titles_and_summaries}", chapterSummariesBlock(ctx))
                 .replace("{top_sections_with_summaries}", topSectionsBlock(ctx, topChunks))
@@ -501,11 +512,33 @@ public class AskService {
 
     // ---- Evidence formatting ----
 
+    // Bullet format for the chapter / section summary blocks fed to the
+    // proposer + synthesiser. Two requirements that conflict if you're not
+    // careful:
+    //
+    //   1. The model needs both the title and its summary on one bullet so
+    //      it can reason locally about which evidence it's looking at.
+    //   2. The synthesiser is asked to extract titles verbatim into the
+    //      GROUNDING block. With a "{title}: {summary}" format, the model
+    //      sometimes copied the whole bullet into grounded_in_chapters
+    //      because nothing structurally distinguished title from summary —
+    //      especially when the bullet was a bare summary (synthetic case)
+    //      and the model had nothing else to grab.
+    //
+    // Resolution: titles are wrapped in double quotes so the synthesiser
+    // has an unambiguous extraction rule ("strings inside double quotes"),
+    // and synthetic units are explicitly marked "(unnamed segment)" rather
+    // than silently emitting just the summary. The synthesiser prompt
+    // tells the model to skip those markers.
+
+    private static final String UNNAMED_MARKER = "(unnamed segment)";
+
     private String chapterSummariesBlock(DocumentContext ctx) {
         StringBuilder sb = new StringBuilder();
         for (DocumentContext.ChapterContext cc : ctx.chapters()) {
-            sb.append("- ").append(nullSafe(cc.chapter().title()))
-                    .append(": ").append(nullSafe(cc.chapter().summary())).append('\n');
+            String summary = nullSafe(cc.chapter().summary());
+            sb.append("- ").append(quotedTitleOrUnnamed(StructuralRef.ofChapter(cc.chapter())))
+                    .append(": ").append(summary).append('\n');
         }
         return sb.toString();
     }
@@ -527,10 +560,10 @@ public class AskService {
         StringBuilder sb = new StringBuilder();
         for (UUID id : ordered) {
             DocumentContext.SectionContext sc = bySectionId.get(id);
-            if (sc != null) {
-                sb.append("- ").append(nullSafe(sc.section().title()))
-                        .append(": ").append(nullSafe(sc.section().summary())).append('\n');
-            }
+            if (sc == null) continue;
+            String summary = nullSafe(sc.section().summary());
+            sb.append("- ").append(quotedTitleOrUnnamed(StructuralRef.ofSection(sc.section())))
+                    .append(": ").append(summary).append('\n');
         }
         return sb.toString();
     }
@@ -547,13 +580,71 @@ public class AskService {
     }
 
     private String topChunksBlock(List<ChunkSearchHit> topChunks) {
+        // Per-chunk attribution uses the same quoted-title convention as the
+        // summary blocks so the model has a single consistent format to
+        // recognise titles by. Synthetic sections are marked rather than
+        // omitted so the absence of a bracket doesn't read as "this chunk
+        // has no parent section."
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < topChunks.size(); i++) {
             ChunkSearchHit hit = topChunks.get(i);
-            sb.append(i + 1).append(". [").append(nullSafe(hit.sectionTitle())).append("] ")
+            String label = hit.sectionSynthetic()
+                    ? UNNAMED_MARKER
+                    : "\"" + nullSafe(hit.sectionTitle()) + "\"";
+            sb.append(i + 1).append(". [").append(label).append("] ")
                     .append(nullSafe(hit.chunkText())).append('\n');
         }
         return sb.toString();
+    }
+
+    private String quotedTitleOrUnnamed(StructuralRef ref) {
+        return switch (ref) {
+            case StructuralRef.Named n -> "\"" + n.title() + "\"";
+            case StructuralRef.Synthetic ignored -> UNNAMED_MARKER;
+        };
+    }
+
+    /**
+     * Render the authors list from {@code document.metadata["authors"]} as a
+     * comma-separated string for prompt substitution. Tier 2.5 follow-up:
+     * authors are non-claim-bearing identity facts that the summariser
+     * correctly drops; surfacing them at deliberation time closes the
+     * "what method does Wagner use?" blind spot.
+     */
+    private String formatAuthorsForPrompt(DocumentContext ctx) {
+        Map<String, Object> meta = ctx.document().metadata();
+        if (meta == null) return "(unknown)";
+        Object stored = meta.get("authors");
+        if (!(stored instanceof List<?> raw) || raw.isEmpty()) return "(unknown)";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < raw.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(String.valueOf(raw.get(i)));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Render the citations list as `[N] raw text` lines for prompt
+     * substitution. The bracketed ref-num matches how citations are referred
+     * to in body text (e.g. "Conjecture 3.3 ([16])"), giving the model an
+     * unambiguous cross-reference between in-text marker and full entry.
+     */
+    private String formatCitationsForPrompt(DocumentContext ctx) {
+        Map<String, Object> meta = ctx.document().metadata();
+        if (meta == null) return "(none)";
+        Object stored = meta.get("citations");
+        if (!(stored instanceof List<?> raw) || raw.isEmpty()) return "(none)";
+        StringBuilder sb = new StringBuilder();
+        for (Object item : raw) {
+            if (!(item instanceof Map<?, ?> entry)) continue;
+            Object refNum = entry.get("ref_num");
+            Object rawText = entry.get("raw");
+            if (refNum == null || rawText == null) continue;
+            sb.append('[').append(refNum).append("] ").append(rawText).append('\n');
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? "(none)" : out;
     }
 
     private List<ChunkSearchHit> topByScore(List<ChunkSearchHit> hits, int max) {

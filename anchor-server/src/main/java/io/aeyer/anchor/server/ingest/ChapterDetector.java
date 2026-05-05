@@ -124,7 +124,8 @@ public class ChapterDetector {
         List<Integer> partStarts = findRegexBoundaries(lines, PART_REGEX);
         if (!partStarts.isEmpty()) return materialise(lines, partStarts, false);
 
-        return List.of(new DetectedChapter("Document", 0, 0, lines.length, true));
+        return List.of(new DetectedChapter(
+                io.aeyer.anchor.server.domain.SyntheticTitles.CHAPTER, 0, 0, lines.length, true));
     }
 
     private List<Integer> findRegexBoundaries(String[] lines, Pattern pattern) {

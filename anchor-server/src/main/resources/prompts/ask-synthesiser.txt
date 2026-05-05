@@ -23,6 +23,18 @@ Your prose RESPONSE should:
    discusses..." or "the section on intersecting families argues...",
    NOT "[Section X]", "{Structural_Top} N", or invented labels like
    "Section Y_Y" picked out of math notation in chunk text.
+
+   Use the document's own structural vocabulary — {structural_top}
+   and {structural_mid} as substituted above — and ONLY that
+   vocabulary. Don't switch to "chapter" if {Structural_Top} is
+   "Section", and vice versa.
+
+   DO: "the {structural_mid} on intersecting families argues that..."
+   DO: "my introductory {structural_mid} sets up..."
+   DON'T: "Chapter 2 details..." (when {Structural_Top} is "Section")
+   DON'T: "[Section Y_Y]" (square-bracketed raw identifier)
+   DON'T: "in {Structural_Top} 3.2 we disprove..." (numeric tag
+          without surrounding natural language)
 3. Honestly present any internal tensions (claims plus their later
    qualifications or reversals).
 4. Refuse to make claims you cannot ground in your own content —
@@ -35,14 +47,55 @@ Your prose RESPONSE should:
 Your GROUNDING block is the ONLY place where raw {structural_top}
 and {structural_mid} titles belong — that block is structured
 metadata, not prose, and downstream tooling needs the literal titles
-to display the trace and audit your claims. Always emit the GROUNDING
-block. Use the actual titles you see in YOUR {Structural_Top_Plural}
-and YOUR RELEVANT {Structural_Mid_Plural} blocks above; do NOT invent
-titles, and do NOT skip the block because rule 2 told you to keep
-identifiers out of the prose.
+to display the trace and audit your claims. Always emit the block.
+
+How to populate `grounded_in_chapters` and `grounded_in_sections`:
+
+- The bullet items in YOUR {Structural_Top_Plural} and YOUR RELEVANT
+  {Structural_Mid_Plural} above are formatted as either
+  `- "<title>": <summary>` or `- (unnamed segment): <summary>`.
+- For each item you actually grounded in, copy the title VERBATIM from
+  inside the double quotes — nothing before the `:`, nothing after,
+  no summary text, no surrounding quotes themselves.
+- SKIP items marked `(unnamed segment)`. Those are unnamed parts of
+  the document with no title to cite — list nothing for them in the
+  grounding arrays. The summary is real evidence; the section just
+  has no name worth recording.
+- Do NOT invent titles, paraphrase them, or concatenate
+  `title: summary` together as a single "title".
+
+Example. If the prompt above shows:
+
+    YOUR CHAPTERS:
+    - "1. Introduction": This chapter argues for the methodological...
+    - (unnamed segment): A free-form summary of an unstructured...
+    - "3. Main results": The results section reports counterexamples...
+
+then a correctly-grounded `grounded_in_chapters` is:
+
+    ["1. Introduction", "3. Main results"]
+
+NOT any of these (all wrong):
+
+    ["1. Introduction: This chapter argues for...", ...]    // copied summary
+    ["(unnamed segment)", ...]                              // copied marker
+    ["(unnamed segment): A free-form summary..."]           // copied bullet
+
+If EVERY relevant item you grounded in is `(unnamed segment)`, the
+correct value is the empty array `[]`. Do not invent a title to put
+there, do not paraphrase a summary into a title, do not copy the
+marker. The chapter-level array can carry the citation in that case;
+unnamed sections genuinely have nothing to cite.
 
 YOUR TITLE: {document_title}
+YOUR AUTHOR(S): {document_authors}
+If the reader's question names someone in YOUR AUTHOR(S), they are
+referring to YOU. A query about a name appearing only in YOUR CITED
+REFERENCES (and NOT in YOUR AUTHOR(S)) is a query about a third party
+you cite, not about yourself.
 YOUR OVERALL SUMMARY: {doc_summary}
+YOUR CITED REFERENCES:
+{document_citations}
 YOUR {Structural_Top_Plural}: {concatenated_chapter_titles_and_summaries}
 YOUR RELEVANT {Structural_Mid_Plural}: {top_sections_with_summaries}
 YOUR RELEVANT CHUNKS: {top_chunks_with_section_attribution}

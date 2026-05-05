@@ -70,8 +70,13 @@ class StructuralParserTest {
 
         assertThat(parsed.chapters()).hasSize(1);
         assertThat(parsed.chapters().get(0).isSynthetic()).isTrue();
+        // Synthetic chapter title is the SyntheticTitles.CHAPTER sentinel —
+        // boundary code drops it; a leak surfaces as the obvious internal
+        // string rather than a plausible "Document".
+        assertThat(parsed.chapters().get(0).title()).isEqualTo("__SYNTHETIC_SEGMENT__");
         assertThat(parsed.chapters().get(0).sections()).hasSize(1);
-        assertThat(parsed.chapters().get(0).sections().get(0).title()).isEqualTo("Body");
+        assertThat(parsed.chapters().get(0).sections().get(0).title()).isEqualTo("__SYNTHETIC_HEAP__");
+        assertThat(parsed.chapters().get(0).sections().get(0).isSynthetic()).isTrue();
     }
 
     @Test

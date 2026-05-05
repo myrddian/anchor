@@ -3,6 +3,9 @@ package io.aeyer.anchor.server.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,6 +25,24 @@ import java.util.Map;
  * produce" and don't need a Spring context.
  */
 final class SynthesiserOutputParser {
+
+    /**
+     * Marker the prompt-block builders use for sections/chapters that the
+     * parser invented (no document-owned title). Listed in the synthesiser
+     * prompt as "skip these in grounding arrays" — but smaller models
+     * sometimes grab the whole bullet anyway when all the relevant evidence
+     * is synthetic and they're reluctant to leave the array empty. This
+     * parser strips the resulting entries so the contract is enforced
+     * regardless of model compliance.
+     *
+     * The detection is paren-insensitive on purpose: models routinely
+     * paraphrase the marker, dropping the parentheses or capitalising it
+     * differently (e.g. {@code "unnamed segment"} or
+     * {@code "Unnamed Segment"}). The two-word phrase itself is the
+     * enforcement boundary — anything containing it, regardless of
+     * surrounding punctuation, is rejected.
+     */
+    private static final String UNNAMED_MARKER_PHRASE = "unnamed segment";
 
     private final ObjectMapper mapper;
 
@@ -64,10 +85,46 @@ final class SynthesiserOutputParser {
         String jsonPart = stripFences(raw.substring(groundingIdx + "GROUNDING:".length(), end).trim());
         try {
             JsonNode root = mapper.readTree(jsonPart);
-            return mapper.convertValue(root, new TypeReference<>() {});
+            Map<String, Object> grounding = mapper.convertValue(root, new TypeReference<>() {});
+            return scrubSyntheticMarkers(grounding);
         } catch (Exception e) {
             return Map.of("raw_output", truncate(jsonPart, 500));
         }
+    }
+
+    /**
+     * Drop any string entries in {@code grounded_in_chapters} /
+     * {@code grounded_in_sections} that contain the unnamed-segment marker,
+     * and deduplicate the survivors while preserving first-occurrence order.
+     *
+     * The model is supposed to skip the marker entries per the synthesiser
+     * prompt; this is the belt to that braces, since the contract —
+     * "GROUNDING titles are verbatim copies of document-owned titles, never
+     * parser-internal markers, never duplicates" — is what downstream
+     * tooling depends on. Deduplication is structural too: a model that
+     * grounds in the same section three times is conveying one citation,
+     * not three, and the array shape shouldn't lie about that.
+     *
+     * Returns a new map; never mutates the input. Preserves insertion order.
+     */
+    private Map<String, Object> scrubSyntheticMarkers(Map<String, Object> grounding) {
+        if (grounding == null) return null;
+        Map<String, Object> cleaned = new LinkedHashMap<>(grounding);
+        for (String key : new String[]{"grounded_in_chapters", "grounded_in_sections"}) {
+            Object value = cleaned.get(key);
+            if (value instanceof List<?> raw) {
+                java.util.LinkedHashSet<Object> seen = new java.util.LinkedHashSet<>(raw.size());
+                for (Object item : raw) {
+                    if (item instanceof String s
+                            && s.toLowerCase(java.util.Locale.ROOT).contains(UNNAMED_MARKER_PHRASE)) {
+                        continue;
+                    }
+                    seen.add(item);
+                }
+                cleaned.put(key, new ArrayList<>(seen));
+            }
+        }
+        return cleaned;
     }
 
     private static String stripFences(String text) {

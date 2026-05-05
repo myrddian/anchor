@@ -1,6 +1,7 @@
 package io.aeyer.anchor.server.service;
 
 import io.aeyer.anchor.protocol.ingest.IngestPhase;
+import io.aeyer.anchor.server.domain.Citation;
 import io.aeyer.anchor.server.domain.DocSummarySource;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChapter;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedChunk;
@@ -9,6 +10,7 @@ import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedParagraph;
 import io.aeyer.anchor.server.ingest.ParsedTypes.ParsedSection;
 import io.aeyer.anchor.server.ingest.DocumentTextExtractor;
 import io.aeyer.anchor.server.ingest.ExtractedDocument;
+import io.aeyer.anchor.server.ingest.ReferencesExtractor;
 import io.aeyer.anchor.server.ingest.StructuralParser;
 import io.aeyer.anchor.server.llm.Embedding;
 import io.aeyer.anchor.server.persistence.entity.ChapterDbo;
@@ -66,6 +68,8 @@ public class IngestService {
 
     private final DocumentTextExtractor extractor;
     private final StructuralParser parser;
+    private final ReferencesExtractor referencesExtractor;
+    private final DocumentMetadataExtractor metadataExtractor;
     private final SummariserService summariser;
     private final EmbeddingService embedder;
     private final TokenLedger ledger;
@@ -78,6 +82,8 @@ public class IngestService {
     private final TransactionTemplate transactionTemplate;
 
     public IngestService(DocumentTextExtractor extractor, StructuralParser parser,
+                         ReferencesExtractor referencesExtractor,
+                         DocumentMetadataExtractor metadataExtractor,
                          SummariserService summariser, EmbeddingService embedder,
                          TokenLedger ledger, WorkerPools pools,
                          DocumentRepository documents, ChapterRepository chapters,
@@ -85,6 +91,8 @@ public class IngestService {
                          ChunkRepository chunks, PlatformTransactionManager txManager) {
         this.extractor = extractor;
         this.parser = parser;
+        this.referencesExtractor = referencesExtractor;
+        this.metadataExtractor = metadataExtractor;
         this.summariser = summariser;
         this.embedder = embedder;
         this.ledger = ledger;
@@ -187,6 +195,19 @@ public class IngestService {
         progress.report(IngestPhase.PARSING, PHASE_END_PARSE, "Parsing structure");
         ParsedDocument parsed = parser.parse(extracted);
 
+        // Tier 2.5 follow-up — non-claim-bearing identity metadata (authors,
+        // citations) lives outside the summariser cascade because the
+        // summariser correctly drops it. Two LLM calls, sequential on the
+        // shared chat slot, ~10s added to a multi-minute ingest. Failures
+        // return empty lists rather than failing the ingest — metadata is
+        // augmenting evidence for the deliberation, not load-bearing for
+        // persistence.
+        List<String> authors = metadataExtractor.extractAuthors(extracted.text());
+        String referencesText = referencesExtractor.findReferencesText(extracted.text());
+        List<Citation> citations = metadataExtractor.extractCitations(referencesText);
+        log.info("Document metadata extracted for {}: {} author(s), {} citation(s)",
+                extracted.title(), authors.size(), citations.size());
+
         Map<UUID, String> paragraphSummaries = new HashMap<>();
         Map<UUID, String> sectionSummaries = new HashMap<>();
         Map<UUID, String> chapterSummaries = new HashMap<>();
@@ -244,8 +265,13 @@ public class IngestService {
                 List<String> belowSummaries = section.paragraphs().stream()
                         .map(p -> paragraphSummaries.get(paragraphIds.get(p)))
                         .toList();
+                // Synthetic section title is a sentinel; never feed it into a
+                // summariser prompt (the model would echo it back into the
+                // generated summary, contaminating the downstream context
+                // that uses summaries instead of raw text).
+                String sectionTitleForPrompt = section.isSynthetic() ? "" : section.title();
                 sectionSummaries.put(sectionIds.get(section),
-                        summariser.summariseSection(section.title(), belowSummaries));
+                        summariser.summariseSection(sectionTitleForPrompt, belowSummaries));
                 sectionsDone++;
                 if (sectionsDone % sectionReportEvery == 0 || sectionsDone == totalSections) {
                     int pct = phasePercent(PHASE_END_PARAGRAPHS, PHASE_END_SECTIONS, sectionsDone, totalSections);
@@ -264,8 +290,9 @@ public class IngestService {
             List<String> belowSummaries = chapter.sections().stream()
                     .map(s -> sectionSummaries.get(sectionIds.get(s)))
                     .toList();
+            String chapterTitleForPrompt = chapter.isSynthetic() ? "" : chapter.title();
             chapterSummaries.put(chapterIds.get(chapter),
-                    summariser.summariseChapter(chapter.title(), belowSummaries));
+                    summariser.summariseChapter(chapterTitleForPrompt, belowSummaries));
             chaptersDone++;
             int pct = phasePercent(PHASE_END_SECTIONS, PHASE_END_CHAPTERS, chaptersDone, totalChapters);
             progress.report(IngestPhase.SUMMARISING_CHAPTERS, pct,
@@ -297,6 +324,7 @@ public class IngestService {
         progress.report(IngestPhase.PERSISTING, PHASE_END_EMBEDDING, "Persisting to database");
         Counts counts = transactionTemplate.execute(status ->
                 persistAll(documentId, sourcePath, parsed, documentSummary, summaryEmbedding,
+                        authors, citations,
                         chapterIds, sectionIds, paragraphIds, chunkIds,
                         chapterSummaries, sectionSummaries, paragraphSummaries,
                         chunkEmbeddings));
@@ -332,6 +360,7 @@ public class IngestService {
 
     private Counts persistAll(UUID documentId, String sourcePath, ParsedDocument parsed, String documentSummary,
                                 float[] summaryEmbedding,
+                                List<String> authors, List<Citation> citations,
                                 Map<ParsedChapter, UUID> chapterIds, Map<ParsedSection, UUID> sectionIds,
                                 Map<ParsedParagraph, UUID> paragraphIds, Map<ParsedChunk, UUID> chunkIds,
                                 Map<UUID, String> chapterSummaries, Map<UUID, String> sectionSummaries,
@@ -351,11 +380,17 @@ public class IngestService {
         docDbo.setIngestedAt(Instant.now());
         // top_level_label feeds the deliberation prompts so the model uses
         // the source's own terminology ("section" / "chapter" / "part")
-        // instead of always saying "chapter". Stored in the existing JSONB
-        // metadata blob — no migration needed.
-        docDbo.setMetadata(Map.of(
-                "content_hash", parsed.sourcePathHash(),
-                "top_level_label", parsed.topLevelVocabulary().singular()));
+        // instead of always saying "chapter". Authors + citations close
+        // the identity-question blind spot (Tier 2.5 follow-up: "what method
+        // does Wagner use?" required the proposer to know that "Wagner" is
+        // the document's author, which no claim-bearing summary mentions).
+        // All stored in the existing JSONB metadata blob — no migration needed.
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("content_hash", parsed.sourcePathHash());
+        metadata.put("top_level_label", parsed.topLevelVocabulary().singular());
+        metadata.put("authors", authors);
+        metadata.put("citations", DocumentMetadataExtractor.toMetadataList(citations));
+        docDbo.setMetadata(metadata);
         if (summaryEmbedding != null && summaryEmbedding.length > 0) {
             docDbo.setSummaryEmbedding(summaryEmbedding);
         }
@@ -380,6 +415,7 @@ public class IngestService {
                 sectionDbo.setOrdinal(section.orderIndex());
                 sectionDbo.setTitle(section.title());
                 sectionDbo.setSummary(sectionSummaries.get(sectionIds.get(section)));
+                sectionDbo.setSynthetic(section.isSynthetic());
                 sections.save(sectionDbo);
                 sectionCount++;
 
