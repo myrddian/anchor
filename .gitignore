@@ -51,3 +51,18 @@ generated-src/
 
 # Postgres data volume (if a bind mount is used)
 .postgres-data/
+
+# eval/ — Python venv + machine-specific stores + intermediate run outputs.
+# Keep results-full/ (canonical artefact, referenced by READMEs); ignore
+# transient single-paper sweeps + the langchain venv + Chroma binary store.
+eval/.venv/
+eval/__pycache__/
+eval/baseline-chroma/
+eval/anchor-eval-state.json
+eval/anchor-results.jsonl
+eval/baseline-results.jsonl
+eval/anchor-results-*.jsonl
+eval/comparison.md
+eval/cmp-*.md
+eval/results-sanity/
+eval/results-tuned/

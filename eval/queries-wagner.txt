@@ -1,0 +1,15 @@
+# Queries against Wagner 2019 (arXiv:1903.05495).
+# Each one targets a conjecture the paper STATES then DISPROVES.
+# Vanilla RAG should retrieve the conjecture-statement chunk and confidently
+# report the conjectured value, missing that the paper refutes it.
+
+what is the maximum diversity of an intersecting set system, according to Frankl and Huang?
+what does Frankl conjecture about antichains of fixed diameter?
+what is the bound conjectured by Katona on multipartite Erdos-Ko-Rado?
+what does the Aharoni-Howard conjecture state about rainbow matchings in bipartite graphs?
+what is the conjectured value of f(n,k) in the Frankl-Tokushige problem?
+
+# Control queries — straightforward facts the paper actually asserts.
+# Both pipelines should get these right; included to show baseline isn't broken.
+what method does Wagner use to refute the conjectures in this paper?
+how many open conjectures does the paper resolve?
