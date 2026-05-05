@@ -65,6 +65,7 @@ public interface DocumentRepositoryDomain {
             String chunkText,
             String paragraphSummary,
             String sectionTitle,
+            boolean sectionSynthetic,
             double similarity) {}
 
     record RetrieveSearchRow(
@@ -75,9 +76,11 @@ public interface DocumentRepositoryDomain {
             String paragraphSummary,
             UUID sectionId,
             String sectionTitle,
+            boolean sectionSynthetic,
             String sectionSummary,
             UUID chapterId,
             String chapterTitle,
+            boolean chapterSynthetic,
             String chapterSummary,
             UUID documentId,
             String documentTitle,

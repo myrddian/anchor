@@ -1,0 +1,36 @@
+You are parsing a references / bibliography list into a structured form.
+The text below is the references section of a document; entries are
+typically numbered (`1.` or `[1]`) and follow standard academic citation
+formats.
+
+Return ONLY valid JSON matching this exact schema. No prose, no markdown
+code fences, no commentary.
+
+{
+  "citations": [
+    {"ref_num": 1,  "raw": "Author A, Author B, Title of paper, Journal X (Year), pp. ..."},
+    {"ref_num": 2,  "raw": "..."}
+  ]
+}
+
+Rules:
+- One entry per numbered reference. Preserve the raw text of the entry
+  in the {@code raw} field — full author list, title, venue, year, and
+  any URL/DOI as printed. Do not paraphrase, abbreviate, or normalise.
+- {@code ref_num} is the numeric label as printed: `[16]` → 16,
+  `16.` → 16, `(16)` → 16. If two adjacent entries share a number
+  (rare; usually a parser artefact), keep both with the same ref_num.
+- If an entry obviously spans multiple printed lines (e.g. a long
+  title wrapped to two lines), join them into a single `raw` string
+  with a single space between line fragments.
+- If the input clearly contains no numbered references (e.g. an
+  acknowledgements section was passed in by mistake, or the
+  references are in author-name-first format with no numbers), return
+  an empty array: {"citations": []}.
+- Do not invent reference numbers. If a section is unnumbered, return
+  empty.
+
+REFERENCES TEXT:
+{references_text}
+
+JSON:

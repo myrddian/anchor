@@ -28,7 +28,12 @@ holds up against the macro view, say so — do not invent challenges
 to seem rigorous.
 
 DOCUMENT TITLE: {document_title}
+DOCUMENT AUTHOR(S): {document_authors}
 DOCUMENT OVERALL SUMMARY: {doc_summary}
+DOCUMENT CITED REFERENCES (use these to verify proposer claims about
+named third parties — names appearing here are people the document
+cites, not authors of this document):
+{document_citations}
 DOCUMENT {Structural_Top_Plural}: {concatenated_chapter_titles_and_summaries}
 
 READER'S QUESTION: {query}

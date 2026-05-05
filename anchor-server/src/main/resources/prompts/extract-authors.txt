@@ -1,0 +1,31 @@
+You are extracting author metadata from the front matter of a document.
+The text below is the very beginning of a document — it may include a
+title, author block, affiliation, abstract, arXiv-style identifier, and
+similar header content.
+
+Return ONLY valid JSON matching this exact schema. No prose, no markdown
+code fences, no commentary.
+
+{
+  "authors": [
+    "Full Name 1",
+    "Full Name 2"
+  ]
+}
+
+Rules:
+- One entry per author. If the document has no identifiable authors
+  (e.g. anonymous, an institutional report, a corpus dump), return
+  an empty array: {"authors": []}.
+- Use the author's full name as printed. Do not abbreviate, do not
+  invert to "Last, First", do not strip middle initials.
+- Do not include affiliations, email addresses, ORCID IDs, or
+  paragraph text from the abstract.
+- If the same person is listed multiple times, deduplicate.
+- If you cannot reliably determine authorship, prefer an empty array
+  over guessing.
+
+FRONT MATTER:
+{front_matter_text}
+
+JSON:

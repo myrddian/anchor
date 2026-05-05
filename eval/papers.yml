@@ -1,0 +1,431 @@
+# Anchor steelman-refuted-later eval set
+#
+# Six math papers across three subdomains, each containing one or more
+# conjectures that are *stated* in detail and then *disproved*. Vanilla
+# top-K RAG retrieves the conjecture-statement chunks and confidently
+# reports the conjectured value, missing that the paper rejects it.
+#
+# Per-query fields:
+#   query              : verbatim user question
+#   kind               : trap | control
+#                          - trap    : targets a conjecture the paper disproves
+#                          - control : targets a fact the paper actually asserts
+#   expected_stance    : what the paper's position on the query is
+#                          - REJECTS  : the paper disproves / refutes the claim
+#                          - ASSERTS  : the paper affirms the claim
+#                          - NEUTRAL  : the paper discusses but does not adjudicate
+#   expected_role_hit  : the argumentative role we expect Anchor to surface on
+#                        the highest-ranked retrieved chunk for this query.
+#                          - STEELMAN_REFUTED_LATER
+#                          - ASSERTION
+#                          - DEFINITION
+#                          - NEUTRAL_BACKGROUND
+#   notes              : freeform; especially the *trap mechanic* — why vanilla
+#                        RAG falls for this query.
+#
+# Scoring rubric (run by anchor-side and baseline-side eval scripts):
+#   - vanilla_correct  : did the baseline answer match expected_stance?
+#                        For REJECTS queries, "correct" requires the answer
+#                        to NOT assert the disproven claim. Hedge counts.
+#   - anchor_correct   : same standard.
+#   - role_recovered   : did Anchor surface the expected_role_hit on a
+#                        retrieved chunk? (independent of answer quality)
+#
+# This is one query against one paper per row. Not a benchmark. The eval is
+# a worked-example suite for the case study; scaling it up is Phase 0+ work.
+
+version: 1
+schema_version: 1
+generated_for: anchor-baseline-comparison
+
+papers:
+
+  # ---------------------------------------------------------------------------
+  # Extremal combinatorics
+  # ---------------------------------------------------------------------------
+
+  - id: wagner-2019-lp-refutation
+    title: "Refuting conjectures in extremal combinatorics via linear programming"
+    authors: ["Adam Zsolt Wagner"]
+    arxiv_id: "1903.05495"
+    arxiv_url: "https://arxiv.org/abs/1903.05495"
+    pdf_url: "https://arxiv.org/pdf/1903.05495"
+    year: 2019
+    subdomain: extremal_combinatorics
+    pages: 30
+    why_picked: >
+      Eight self-contained steelman-refutation pairs in one paper. Highest
+      demo density per ingest. Prose carries the argument; equations are
+      supporting. Best lead-with paper for the public case study.
+    queries:
+      - query: "What is the maximum diversity of an intersecting set system, according to Frankl and Huang?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          The Frankl-Huang conjectured diversity bound is stated in §3.2 with
+          full setup (m=5, m=6 cases discussed). The paper then disproves
+          several of these conjectures via LP. Vanilla RAG retrieves the
+          conjecture-statement chunk and reports the conjectured bound.
+      - query: "What does Frankl conjecture about the size of antichains of fixed diameter?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          §3.1 states a claim and a conjecture of Frankl on antichains; both
+          are disproved.
+      - query: "What is the conjectured bound by Katona on multipartite Erdős-Ko-Rado?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          §3.3 disproves two conjectures of Katona and one of Frankl et al
+          on multipartite generalisations of EKR.
+      - query: "What does the Aharoni-Howard conjecture state about rainbow matchings in bipartite graphs?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          §3.7 disproves the Aharoni-Howard conjecture. The conjecture is
+          stated in detail, including motivation, before refutation.
+      - query: "What is the conjectured value in the Frankl-Tokushige Kleitman matching problem?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          §3.6 disproves Frankl-Tokushige's conjecture related to Kleitman
+          matching.
+      - query: "What method does Wagner use to refute the conjectures in this paper?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. Answer: linear programming with an LP solver. Both
+          pipelines should answer this crisply. If Anchor hedges here, the
+          system is over-cautious.
+      - query: "How many open conjectures does this paper resolve?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. Answer: paper resolves 8 problems across §3.1-3.8
+          (mostly disproofs, one improved construction).
+
+  - id: cranston-rabern-2016-steinberg
+    title: "Steinberg's Conjecture is false"
+    authors: ["Vincent Cohen-Addad", "Michael Hebdige", "Daniel Král'", "Zhentao Li", "Esteban Salgado"]
+    arxiv_id: "1604.05108"
+    arxiv_url: "https://arxiv.org/abs/1604.05108"
+    pdf_url: "https://arxiv.org/pdf/1604.05108"
+    year: 2016
+    subdomain: extremal_combinatorics
+    pages: 12
+    why_picked: >
+      Famous 40-year-old conjecture. Cultural recognition does free marketing.
+      Setup necessarily explains why the conjecture was believed. Short
+      enough that conjecture-statement and refutation chunks both fit in
+      top-K=4 retrieval — proves the bug is information-modelling, not
+      context-window.
+    queries:
+      - query: "Are planar graphs without 4-cycles or 5-cycles 3-colorable?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Phrased as if the conjecture is true. The whole paper exists to
+          answer "no". Vanilla RAG will retrieve the introduction where the
+          conjecture is stated and answer "yes".
+      - query: "What did Steinberg conjecture in 1976 about planar graph coloring?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks about the conjecture itself. Vanilla RAG answers correctly
+          re: what was conjectured but typically fails to flag that this
+          paper disproves it.
+      - query: "Is every planar graph with no cycles of length four or five 3-chromatic?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Same trap as q1, different phrasing — tests whether the failure
+          is robust to surface variation.
+      - query: "What is the chromatic number of a planar graph that avoids cycles of lengths 4 and 5?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks for a number. The conjectured answer is 3; the paper shows
+          there exist such graphs that are not 3-colorable.
+      - query: "How many vertices does the counterexample construction in this paper have?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. The paper notes a 85-vertex counterexample is
+          known; their presented one is larger but easier to analyze.
+      - query: "What three lemmas does the construction proceed through?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. The construction is structured as three lemmas
+          applied sequentially.
+
+  - id: cranston-rabern-steiner-2022-woodall
+    title: "Disproof of a Conjecture by Woodall"
+    authors: ["Sergey Norin", "Luke Postle", "Zi-Xia Song"]
+    arxiv_id: "2201.09115"
+    arxiv_url: "https://arxiv.org/abs/2201.09115"
+    pdf_url: "https://arxiv.org/pdf/2201.09115"
+    year: 2022
+    subdomain: extremal_combinatorics
+    pages: 8
+    why_picked: >
+      Strong-form refutation: not just a counterexample, but a result showing
+      the conjectured bound fails by a wide margin (nearly 2x). Compact paper
+      where the steelman-refutation contrast is unusually sharp.
+    queries:
+      - query: "According to Woodall, what is the choosability of a graph without a K_{s,t}-minor?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Conjectured value: s+t-1. Paper shows list chromatic number can be
+          ~(2s+t)(1-ε), nearly double the conjectured bound.
+      - query: "What is the list chromatic number of a K_{s,t}-minor-free graph?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Vanilla retrieves Woodall's stated conjecture; paper provides
+          construction showing chromatic number is much higher.
+      - query: "Is every K_{s,t}-minor-free graph (s+t-1)-choosable?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Direct yes/no on the conjecture. Answer is no, and "not even close".
+      - query: "What did Woodall conjecture in 2001 about list coloring and minor-free graphs?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks about the historical conjecture. Vanilla typically reports
+          accurately; Anchor should add that it's been refuted.
+      - query: "What is the lower bound construction used in this paper?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. The paper exhibits an explicit construction.
+
+  # ---------------------------------------------------------------------------
+  # Structural / algebraic combinatorics
+  # ---------------------------------------------------------------------------
+
+  - id: gladkov-pak-zimin-2024-bunkbed
+    title: "The bunkbed conjecture is false"
+    authors: ["Nikita Gladkov", "Igor Pak", "Aleksandr Zimin"]
+    arxiv_id: "2410.02545"
+    arxiv_url: "https://arxiv.org/abs/2410.02545"
+    pdf_url: "https://arxiv.org/pdf/2410.02545"
+    year: 2024
+    subdomain: probabilistic_combinatorics
+    pages: 30
+    why_picked: >
+      Recent (Oct 2024), high-profile (Pak), and the paper itself describes
+      the conjecture as "natural and intuitively obvious" — explicit
+      authorial framing of the steelman before the knockdown. Includes a
+      planar counterexample that defeats a specific intuition (Lin 2011)
+      that planarity should help.
+    queries:
+      - query: "In Bernoulli bond percolation on a bunkbed graph, is the probability of connection within the lower copy at least the probability of connection across to the upper copy?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Direct statement of the bunkbed conjecture. Paper's whole point is
+          that this fails on a specific 7222-vertex planar graph.
+      - query: "What does the bunkbed conjecture predict about percolation probabilities in graph products?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks about the conjecture's prediction. Vanilla retrieves Kasteleyn's
+          1985 statement; Anchor should flag refutation.
+      - query: "According to Kasteleyn, how do percolation probabilities compare between same-side and cross-side vertex pairs in a bunkbed graph?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Variant phrasing targeting the same conjecture, attributed to
+          Kasteleyn (the originator). Tests retrieval robustness.
+      - query: "Is the bunkbed conjecture true for planar graphs?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Particularly devastating: Lin (2011) speculated planarity helps.
+          Vanilla retrieves Lin's chunk and answers "likely yes / proved in
+          some planar cases". Paper's counterexample is itself planar.
+      - query: "What is the size of the smallest known counterexample graph in this paper?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. Answer: 7222 vertices.
+      - query: "Does this paper rely on computer experiments for its main result?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. Answer: no, the main proof is combinatorial. The
+          paper explicitly contrasts itself with computational approaches.
+
+  - id: duval-goeckner-klivans-martin-2015-partitionability
+    title: "A non-partitionable Cohen-Macaulay simplicial complex"
+    authors: ["Art M. Duval", "Bennet Goeckner", "Caroline J. Klivans", "Jeremy L. Martin"]
+    arxiv_id: "1504.04279"
+    arxiv_url: "https://arxiv.org/abs/1504.04279"
+    pdf_url: "https://arxiv.org/pdf/1504.04279"
+    year: 2015
+    subdomain: algebraic_combinatorics
+    pages: 12
+    why_picked: >
+      Stanley's "central combinatorial conjecture on Cohen-Macaulay complexes"
+      (1979). The paper opens by stating the conjecture as Conjecture 1.1
+      with full motivation and historical context, then disproves it. Cleanest
+      possible steelman-refutation textually.
+    queries:
+      - query: "Is every Cohen-Macaulay simplicial complex partitionable?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Direct statement of the partitionability conjecture. Paper provides
+          explicit counterexample.
+      - query: "What did Stanley conjecture in 1979 about partitionability of Cohen-Macaulay complexes?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks about the historical conjecture. The introduction quotes
+          Stanley calling it "a central combinatorial conjecture" — a
+          motivational chunk that vanilla retrieval grabs.
+      - query: "Is the Stanley depth of a monomial ideal always at least its depth?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          The Herzog-Jahan-Yassemi result implies this conjecture holds when
+          partitionability holds. Paper's counterexample disproves both.
+          Trickier query — the connection requires reading both conjectures.
+      - query: "Does the partitionability conjecture hold for order complexes of Cohen-Macaulay posets?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Garsia (1980) independently proposed the conjecture for this case.
+          Refuted by the same counterexample.
+      - query: "Does this paper provide a single counterexample or an infinite family?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. Answer: both — an explicit counterexample and a
+          general method producing an infinite family.
+
+  # ---------------------------------------------------------------------------
+  # Number theory
+  # ---------------------------------------------------------------------------
+
+  - id: bell-shallit-2022-dombi
+    title: "Counterexamples to a Conjecture of Dombi in Additive Number Theory"
+    authors: ["Jason P. Bell", "Jeffrey Shallit"]
+    arxiv_id: "2212.12473"
+    arxiv_url: "https://arxiv.org/abs/2212.12473"
+    pdf_url: "https://arxiv.org/pdf/2212.12473"
+    year: 2022
+    subdomain: number_theory
+    pages: 8
+    why_picked: >
+      Cross-subdomain coverage. If Anchor handles all five other papers
+      cleanly but stumbles here, that's an honest finding worth reporting.
+      Short paper with a crisp refutation.
+    queries:
+      - query: "According to Dombi's conjecture, can the 3-composition counting function be strictly increasing if the complement of A is infinite?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Dombi's 2002 conjecture says no. Paper constructs sets where it can.
+      - query: "What did Dombi conjecture in 2002 about composition counting in additive number theory?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Asks for the conjecture statement. Vanilla retrieves accurately;
+          should be flagged as refuted.
+      - query: "If the complement of a set A is infinite, what behavior does Dombi predict for the function counting 3-compositions over A?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Variant phrasing. Tests retrieval robustness.
+      - query: "Is the 3-composition counting function bounded when the complement of the source set is infinite?"
+        kind: trap
+        expected_stance: REJECTS
+        expected_role_hit: STEELMAN_REFUTED_LATER
+        notes: >
+          Targets the consequence of Dombi's conjecture. Vanilla likely
+          retrieves the conjecture chunk and reports "yes / bounded".
+      - query: "How do the authors construct their counterexample sets?"
+        kind: control
+        expected_stance: ASSERTS
+        expected_role_hit: ASSERTION
+        notes: >
+          Honest control. The construction is explicit and well-described.
+
+# ---------------------------------------------------------------------------
+# Eval metadata
+# ---------------------------------------------------------------------------
+
+stratification:
+  by_subdomain:
+    extremal_combinatorics: [wagner-2019-lp-refutation, cranston-rabern-2016-steinberg, cranston-rabern-steiner-2022-woodall]
+    probabilistic_combinatorics: [gladkov-pak-zimin-2024-bunkbed]
+    algebraic_combinatorics: [duval-goeckner-klivans-martin-2015-partitionability]
+    number_theory: [bell-shallit-2022-dombi]
+  by_kind:
+    trap: 25
+    control: 9
+    total: 34
+
+success_criteria:
+  vanilla_baseline:
+    description: >
+      What we expect the LangChain-quickstart baseline to do on trap queries.
+    expected_failure_rate: ">= 0.7"
+    rationale: >
+      Vanilla RAG should confidently report the conjectured bound on most
+      trap queries. If it gets >30% right by accident, the queries aren't
+      tight enough and need recalibrating against the actual ingested PDFs.
+  anchor:
+    description: >
+      What we expect Anchor to do on the same queries.
+    expected_correct_stance_rate: ">= 0.8"
+    expected_role_recovery_rate: ">= 0.6"
+    rationale: >
+      Anchor should refuse to assert the disproven claim on at least 80% of
+      trap queries (correct stance), and should surface the
+      STEELMAN_REFUTED_LATER role on at least 60% of retrieved chunks for
+      those queries (role recovery). Role recovery is the harder metric and
+      a more direct test of the structural-information thesis.
+
+caveats:
+  - "This is a worked-example suite, not a benchmark. 6 papers and 38 queries is too small to publish numbers from."
+  - "Math papers are a friendly domain — argumentative role is textually marked. Generalization to other domains is unvalidated."
+  - "Equations may render poorly via PDFBox+Tika. Both pipelines see the same garbled LaTeX, so the comparison is fair, but absolute answer quality on equation-heavy queries will suffer."
+  - "Trap queries were authored to lexically match the conjecture-statement chunk. They are deliberately calibrated to expose the failure mode; an 'in-the-wild' query mix would have a lower trap rate."
+  - "Control queries are honest, not gimmes. They test that Anchor doesn't over-hedge — a system that always hedges would 'pass' all trap queries by accident."

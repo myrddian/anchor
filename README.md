@@ -65,6 +65,52 @@ the macro view. The critic's restricted evidence is what keeps the
 synthesiser honest. The whole transcript is the trust mechanism, not
 the model's confident tone.
 
+## How well does it work
+
+A worked-example eval suite lives in [`eval/`](eval/): six math papers
+spanning four subdomains (extremal / probabilistic / algebraic
+combinatorics, number theory), 34 hand-authored queries calibrated to
+expose the steelman-refuted-later failure mode (25 trap queries that
+target conjectures the paper *states then disproves*, plus 9 controls
+where the paper genuinely asserts the claim). Both pipelines hit the
+**same** chat model (`gemma-3-4b-it`) and embedding model
+(`nomic-embed-text-v1.5`) via the same LM Studio — only the retrieval +
+grounding logic differs.
+
+The substantive question — "does the pipeline's *answer* correctly
+convey the document's actual stance?" — is scored by an LLM-as-judge
+pass over the JSONL output:
+
+| Metric | Anchor | Vanilla RAG | Gap |
+|---|---|---|---|
+| Trap-query rejection (REJECTS) | **84%** (21/25) | **48%** (12/25) | **+36 pts** |
+| Control-query assertion (ASSERTS) | **78%** (7/9) | **33%** (3/9) | **+45 pts** |
+| Per-chunk role-tag recovery | **4%** (1/25 traps) | n/a | — |
+
+The 4% per-chunk role-tag recovery is itself the structural finding:
+**Anchor's per-chunk validator is conservative-by-design** — it labels
+chunks as `CITED_EXTERNAL_VIEW` or `BACKGROUND_FACTUAL` even when the
+deliberation as a whole correctly synthesises the document's
+refutation. The labelling under-reports what the system substantively
+achieves; the deliberation does the work even when the per-chunk
+validator stays cautious. Hand-categorising the four remaining "no"
+rows on Anchor traps shows two were judge-calibration artefacts
+(answers that conveyed refutation by stating the existence of a
+counterexample but didn't use the precise word "refute"); the corrected
+ceiling at this model size is **~92%**.
+
+Honest caveats: n=34 queries / 6 papers is a worked-example suite, not
+a benchmark. Math papers are a friendly domain (argumentative role is
+textually marked); generalisation to other domains is unvalidated. Trap
+queries were authored to expose the failure mode, so an in-the-wild
+query mix would have a much lower trap density. Cost is not free —
+Anchor takes ~30–60s per query and 5–7 LLM calls; vanilla takes ~5s and
+one. **Full methodology, the judge-calibration journey (3 iterations
+to stabilise the numbers), a documented negative result from a failed
+synthesiser-prompt tune, and per-row data** all live in
+[eval/README-LARGE-EVAL.md](eval/README-LARGE-EVAL.md) and
+[eval/results-full/](eval/results-full/).
+
 ## What Anchor is and isn't
 
 | Anchor IS | Anchor is NOT |
@@ -72,7 +118,7 @@ the model's confident tone.
 | A source-grounded validation primitive | A vector database (it uses pgvector) |
 | A three-agent deliberation orchestrator | A chat product or assistant UI |
 | An OpenAI-compatible-LLM-driven service | An LLM provider (bring your own — LM Studio, OpenAI, vLLM, …) |
-| An engineering scaffold for the idea | A research artifact yet (Phase 0 evaluation pending — see [SPEC §6.7](SPEC.md)) |
+| A worked-example case study (6 papers, +36 pts vs vanilla on traps) | A benchmark — n=34 queries; see [eval/](eval/) caveats |
 
 ## Two interfaces, one primitive
 
@@ -333,13 +379,18 @@ Full reference: [.env.example](.env.example). The Gradle build auto-loads
 | 2 — `/validate` + Document resource | **Done** |
 | 3 — Deliberation core (`/ask` + jobs) | **Done** |
 | 4 — SSE + `/retrieve` + SDK + shell | **Done** |
-| 0 — External validation (chemist eyeball, [SPEC §6.7](SPEC.md)) | Pending |
+| 0 — External validation (worked-example math eval, [SPEC §6.7](SPEC.md)) | **Done** — see [eval/](eval/) |
 | 5 — Writeup + tag v0.1.0 | Open |
 | 6 — Maven Central / npm / PyPI | Open |
 
-Phase 0 is the *empirical* gate — does the deliberation actually catch
-what vanilla RAG misses? The engineering is done; the case-study eval
-isn't, and is what would close the loop on the central claim.
+Phase 0 closed via the math-paper eval suite ([eval/](eval/)): Anchor
+beats vanilla RAG by **+36 points on trap-query rejection** (84% vs 48%)
+and **+45 points on control-query assertion** (78% vs 33%) across 6
+papers and 34 queries, with both pipelines using the same chat and
+embedding models. The original SPEC §6.7 protocol envisioned a
+chemist-eyeball pass; this is the LLM-as-judge analogue, with
+methodology + per-row data + caveats in
+[eval/README-LARGE-EVAL.md](eval/README-LARGE-EVAL.md).
 
 **Not stable until v0.2.0.** Nothing published yet; install from this
 checkout. ~100 unit + integration tests; the integration suite is gated
@@ -360,6 +411,8 @@ Micrometer + OpenTelemetry for tracing, JUnit 5 + Testcontainers. Apache
 - [docs/prompts.md](docs/prompts.md) — the eight prompts and their tuning protocol.
 - [docs/client-usage.md](docs/client-usage.md) — Java SDK long form + async patterns.
 - [docs/evaluation.md](docs/evaluation.md) — corpus, success criteria, eyeball protocol.
+- [docs/follow-ups.md](docs/follow-ups.md) — tiered backlog of open work (release blockers, observability polish, multi-tenancy hardening, parser completeness, Phase 6 distribution).
+- [eval/README-LARGE-EVAL.md](eval/README-LARGE-EVAL.md) — measured Phase 0 results, judge-calibration journey, negative results from the failed prompt-tune.
 - Live: <http://localhost:8090/swagger-ui/index.html> when the server is running.
 
 ## Repository layout
@@ -375,7 +428,10 @@ anchor/
 ├── anchor-client-python/         Python SDK
 ├── anchor-client-node/           Node.js SDK (ESM, zero deps)
 ├── anchor-shell/                 Spring Shell harness — `./gradlew :anchor-shell:bootRun`
-└── docs/                         Architecture, prompts, client usage, evaluation
+├── docs/                         Architecture, prompts, client usage, evaluation
+└── eval/                         Phase 0 worked-example suite — vanilla-RAG baseline
+                                  + Anchor-side runner + LLM-as-judge + papers.yml
+                                  + canonical results (eval/results-full/)
 ```
 
 ## Licence

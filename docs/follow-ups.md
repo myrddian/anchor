@@ -100,6 +100,79 @@ the synthesiser's GROUNDING block's `grounded_in_sections` field.
       prompt body, but at some point you're fighting model defaults.
       Worth a single attempt before declaring it acceptable. **~10
       min for the prompt edit + a verification run.**
+- [ ] **Identity-question blind spot — author / citation metadata
+      not surfaced to deliberation.** Surfaced by the
+      `eval/queries-wagner.txt` sweep (Q6: *"what method does Wagner
+      use to refute the conjectures in this paper?"*). Vanilla RAG
+      answers correctly because PyPDF retrieves the page-0 chunk
+      that bundles author + abstract + method statement; Anchor
+      answers *"I do not contain any information regarding a
+      researcher named Wagner"* because the summariser correctly
+      filters non-claim-bearing content (author names) out of every
+      summary level. The deliberation prompts thus never see the
+      connection "Wagner" → "the author of this document."
+      Generalises to any identity-shaped query (academic-paper
+      authors, legal-opinion judges, named witnesses, narrative
+      protagonists).
+
+      Two-pronged fix, kept narrow to avoid an ETL slide:
+
+      **Problem A — structured document metadata (this work).**
+      Add an ingest-time extraction pass that fills
+      `document.metadata` with two fields and only those:
+      - `authors: [string]` — extracted by one LLM call against
+        the front matter.
+      - `citations: [{ref_num: int, raw: string}]` — captured
+        from the references section the parser currently drops
+        wholesale (`SectionDetector.EXCLUDED_SECTIONS`); one LLM
+        call to parse the bracketed/numbered list into `[N] -> raw`
+        pairs, no BibTeX-grade structure. Lets queries about cited
+        authors (e.g. "what does Frankl conjecture") cross-
+        reference attribution at the synthesiser layer.
+      Inject both into the proposer/synthesiser prompts as
+      `{document_authors}` / `{document_citations}` next to the
+      existing `{document_title}` substitution. Two extra LLM calls
+      per ingest. No schema migration — JSONB column already
+      exists.
+
+      **Problem B — preserve named entities in claim-bearing
+      summaries (deferred, prompt-nudge only).** A single sentence
+      added to chapter/section/paragraph summary prompts: "When the
+      prose centrally features named people, characters, or other
+      identifiable entities, preserve those names in the summary."
+      Solves the narrative case (Hamlet, named witnesses) without a
+      separate extraction pipeline — the summariser already has the
+      prose; this changes what it filters in. Zero-cost when no such
+      entities are present. Worth doing in the next ask-prompt tune
+      pass; not bundled with Problem A.
+
+      The hard line: anything beyond `authors` and `citations`
+      (e.g. `primary_entities`, document-type classification, full
+      BibTeX structure on citations) requires a real scope
+      conversation. Two fields. Two LLM calls. Stop there.
+
+- [ ] **Parser misses inline subsection headings (`3.1.` style)
+      embedded mid-chunk.** Surfaced during the eval smoke-run on
+      Wagner 2019: a chunk's text begins `"3.1. Antichains of fixed
+      diameter. Define the diameter..."` — `3.1. Antichains of fixed
+      diameter` is a real subsection heading in the source PDF, but
+      neither `ChapterDetector` nor `SectionDetector` extracted it,
+      so it lives only inside the chunk text. The synthesiser then
+      reads the chunk and lifts that heading into
+      `grounded_in_sections` as a "title" that doesn't match any
+      DB-known section row. The hallucination is *correct* (the
+      heading is real in the source) but it relaxes the GROUNDING
+      contract — titles are no longer strictly drawn from the
+      DB-known set. Two reasonable fixes:
+      (a) Improve `SectionDetector` to recognise `^\\d+\\.\\d+\\.\\s+[A-Z]`
+          subsection-style headings (currently `NUMBERED_HEADING` only
+          matches single-level `\\d+\\.`). Best long-term fix — it
+          actually surfaces the structure that's already in the doc.
+      (b) Defensive validation in `SynthesiserOutputParser`: cross-
+          check GROUNDING titles against the document's known section
+          + chapter titles; either drop or flag mismatches. Treats a
+          symptom rather than the cause but is small.
+      I'd take (a) first; (b) only if (a) doesn't fully close it.
 
 ---
 

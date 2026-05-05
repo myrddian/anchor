@@ -144,7 +144,8 @@ public class ValidateController {
                     hit.chunkId(),
                     hit.chunkText(),
                     hit.paragraphSummary(),
-                    hit.sectionTitle(),
+                    hit.sectionSynthetic() ? null : hit.sectionTitle(),
+                    hit.sectionSynthetic(),
                     hit.similarity()));
             if (out.size() >= ALTERNATIVE_LIMIT) break;
         }

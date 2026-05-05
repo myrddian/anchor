@@ -90,16 +90,20 @@ public class DocumentController {
         DocumentContext ctx = documents.findDocumentContextAsDomain(id).orElse(null);
         if (ctx == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
 
+        // Synthetic structural units carry sentinel titles in the DB; the
+        // API surface returns title=null + is_synthetic=true so consumers
+        // never see __SYNTHETIC_SEGMENT__ / __SYNTHETIC_HEAP__ in JSON.
         List<ChapterDetail> chapterDetails = ctx.chapters().stream().map(c -> new ChapterDetail(
                 c.chapter().id(),
                 c.chapter().ordinal(),
-                c.chapter().title(),
+                c.chapter().isSynthetic() ? null : c.chapter().title(),
                 c.chapter().summary(),
                 c.chapter().isSynthetic(),
                 c.sections().stream().map(s -> new SectionDetail(
                         s.section().id(),
                         s.section().ordinal(),
-                        s.section().title(),
+                        s.section().isSynthetic() ? null : s.section().title(),
+                        s.section().isSynthetic(),
                         s.section().summary())).toList())).toList();
 
         return ResponseEntity.ok(new DocumentDetailResponse(

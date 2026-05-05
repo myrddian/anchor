@@ -7,4 +7,5 @@ public record Section(
         UUID chapterId,
         int ordinal,
         String title,
-        String summary) {}
+        String summary,
+        boolean isSynthetic) {}

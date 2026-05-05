@@ -117,4 +117,94 @@ class SynthesiserOutputParserTest {
         assertThat(parser.extractResponse(null)).isEmpty();
         assertThat(parser.extractGrounding(null)).isNull();
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void unnamed_segment_entries_are_stripped_from_grounding_arrays() {
+        // Belt-and-braces: the synthesiser prompt tells the model to skip
+        // (unnamed segment) entries, but smaller models sometimes copy the
+        // whole bullet anyway when all the relevant evidence is synthetic.
+        // The parser scrubs them so downstream tooling can rely on
+        // grounding entries being verbatim document-owned titles.
+        String raw = """
+                RESPONSE:
+                I cite both real and unnamed sections.
+
+                GROUNDING:
+                {
+                  "grounded_in_chapters": ["1. Introduction", "(unnamed segment): summary copied verbatim"],
+                  "grounded_in_sections": ["(unnamed segment)", "Methods", "(unnamed segment): another bullet"],
+                  "confidence": "medium"
+                }
+                """;
+
+        var grounding = parser.extractGrounding(raw);
+        assertThat(grounding).isNotNull();
+        assertThat((java.util.List<String>) grounding.get("grounded_in_chapters"))
+                .containsExactly("1. Introduction");
+        assertThat((java.util.List<String>) grounding.get("grounded_in_sections"))
+                .containsExactly("Methods");
+        assertThat(grounding.get("confidence")).isEqualTo("medium");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void duplicate_grounding_entries_are_deduplicated_preserving_first_occurrence_order() {
+        // Models occasionally list the same section twice when the
+        // deliberation pulled multiple chunks from it. Conveys one citation,
+        // not N — the array shape shouldn't lie about that.
+        String raw = """
+                GROUNDING:
+                {
+                  "grounded_in_chapters": ["1. Introduction", "3. Main results", "1. Introduction"],
+                  "grounded_in_sections": ["3.1. Antichains.", "3.1. Antichains.", "3.7. Rainbow.", "3.1. Antichains."],
+                  "confidence": "high"
+                }
+                """;
+
+        var grounding = parser.extractGrounding(raw);
+        assertThat((java.util.List<String>) grounding.get("grounded_in_chapters"))
+                .containsExactly("1. Introduction", "3. Main results");
+        assertThat((java.util.List<String>) grounding.get("grounded_in_sections"))
+                .containsExactly("3.1. Antichains.", "3.7. Rainbow.");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void scrubber_catches_paraphrased_unnamed_segment_marker_without_parens() {
+        // Smaller models occasionally drop the parentheses around the marker
+        // when copying it into grounded_in_sections; the scrubber must catch
+        // both forms to enforce the "no synthetic markers in grounding"
+        // contract regardless of model compliance.
+        String raw = """
+                GROUNDING:
+                {
+                  "grounded_in_chapters": ["1. Introduction"],
+                  "grounded_in_sections": ["unnamed segment", "Unnamed Segment", "Methods", "(unnamed segment): paraphrase"],
+                  "confidence": "high"
+                }
+                """;
+
+        var grounding = parser.extractGrounding(raw);
+        assertThat((java.util.List<String>) grounding.get("grounded_in_sections"))
+                .containsExactly("Methods");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void all_synthetic_grounding_yields_empty_array_not_a_crash() {
+        String raw = """
+                GROUNDING:
+                {
+                  "grounded_in_chapters": ["1. Introduction"],
+                  "grounded_in_sections": ["(unnamed segment)", "(unnamed segment): summary"],
+                  "confidence": "low"
+                }
+                """;
+
+        var grounding = parser.extractGrounding(raw);
+        assertThat((java.util.List<String>) grounding.get("grounded_in_sections")).isEmpty();
+        assertThat((java.util.List<String>) grounding.get("grounded_in_chapters"))
+                .containsExactly("1. Introduction");
+    }
 }
