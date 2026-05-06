@@ -1,0 +1,79 @@
+name: Feature request
+description: Suggest a capability, surface, or behaviour that isn't there yet.
+title: "[feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Anchor's scope is deliberately narrow — see [SPEC.md](https://github.com/myrddian/anchor/blob/main/SPEC.md)
+        for what's in v0 and [docs/follow-ups.md](https://github.com/myrddian/anchor/blob/main/docs/follow-ups.md)
+        for what's already on the backlog. If your request fits an existing
+        Tier in follow-ups, mentioning it shortcuts triage.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: |
+        What are you trying to do that Anchor currently doesn't support, or
+        supports awkwardly? Concrete use cases beat abstract feature names.
+      placeholder: |
+        I want to ingest a folder of papers in one go without scripting
+        a curl loop — currently each paper is a separate /ingest call.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: |
+        How might this look on the API / SDK / MCP / UI surface? Sketch
+        the request/response shape if you have one in mind. Don't worry
+        about getting it perfect — the proposal is a starting point for
+        discussion, not a contract.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workaround(s) did you try, and where did they fall short?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where does this fit?
+      options:
+        - Server / API
+        - SDK (Java / Python / Node)
+        - MCP tool surface
+        - Web UI
+        - Ingest pipeline (extraction / chunking / structural detection)
+        - Deliberation prompts / agent design
+        - Observability / metrics
+        - Deployment / packaging
+        - Documentation
+        - Other (explain below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: |
+        Links to similar systems, papers, prior art, or screenshots /
+        diagrams. If this connects to a follow-up backlog item, link it.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I've checked existing [issues](https://github.com/myrddian/anchor/issues?q=is%3Aissue) and [docs/follow-ups.md](https://github.com/myrddian/anchor/blob/main/docs/follow-ups.md) for duplicates.
+          required: true
+        - label: I've read [SPEC.md](https://github.com/myrddian/anchor/blob/main/SPEC.md) (or at least the section relevant to this request) and this isn't already on the v0 plan.
+          required: true

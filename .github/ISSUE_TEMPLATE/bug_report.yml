@@ -1,0 +1,114 @@
+name: Bug report
+description: Something in Anchor isn't doing what the docs / spec say it should.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing! Anchor is in v0 and the surface area is wide —
+        the more concrete you can be about what you ran and what you expected
+        the faster this can land.
+
+        **Security issues:** please don't file them here. Use the private
+        flow at [Security → Advisories](https://github.com/myrddian/anchor/security/advisories/new).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One-paragraph description of what went wrong.
+      placeholder: "When I POST to /ingest with an EPUB the job 500s during the SUMMARISING_SECTIONS phase."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: |
+        The smallest set of steps that triggers the bug. Include the
+        actual request body, file shape, or query you used. Code blocks
+        in fenced ``` work fine.
+      placeholder: |
+        1. `docker compose --profile app up --build`
+        2. `curl -X POST http://localhost:8090/ingest/upload -F file=@paper.epub`
+        3. Wait for ingest job to start
+        4. Job fails with...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you expect Anchor to do? Cite SPEC.md / docs if the expectation comes from there.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: |
+        What actually happened. Include error messages, stack traces, or
+        the relevant chunk of the deliberation envelope.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: anchor-version
+    attributes:
+      label: Anchor version / commit
+      description: Output of `git rev-parse --short HEAD` if running from source, or the release tag.
+      placeholder: "main @ 3e44dbd"
+    validations:
+      required: true
+
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      description: Output of `java -version` (only the first line).
+      placeholder: "openjdk version \"21.0.4\" 2024-07-16"
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - "./gradlew :anchor-server:bootRun (host JVM)"
+        - "docker compose up postgres + bootRun (mixed)"
+        - "docker compose --profile app up --build (full stack in containers)"
+        - Other (describe in Summary)
+    validations:
+      required: true
+
+  - type: input
+    id: llm-provider
+    attributes:
+      label: LLM provider
+      description: Which OpenAI-compatible endpoint is `LLM_BASE_URL` pointing at?
+      placeholder: "LM Studio (gemma-4-e4b-it + nomic-embed-text)"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs / trace
+      description: |
+        Relevant log lines. If you have OTel / Jaeger up, the trace ID is
+        gold — `anchor.job_id` and the span tree from /jobs/{id} tell us
+        where time went and where it failed.
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I've checked existing [issues](https://github.com/myrddian/anchor/issues?q=is%3Aissue) for duplicates.
+          required: true
+        - label: This isn't a security report (those go through [private advisories](https://github.com/myrddian/anchor/security/advisories/new)).
+          required: true
